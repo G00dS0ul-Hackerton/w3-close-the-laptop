@@ -21,6 +21,16 @@ SteadyDev maintains a strict four-way separation of session state:
 
 ## Architecture & Milestones
 
+### Milestone M1 — Real Local Reviewer Feasibility (Completed)
+Milestone M1 established the feasibility of local open-weight code reviewing on CPU using Ollama before presentation UI work.
+- **Deterministic Baseline:** Zero-LLM reference engine (<5 ms) verifying criteria, receipts, and deferral markers.
+- **Sequential Model Evaluation:** Evaluated `gemma3:4b` vs `qwen2.5-coder:3b` across 8 canonical test fixtures.
+- **Bounded Packet Security:** Strict allowlisting, diff truncation (max 400 lines / 8 KB), and XML delimiter data-inertia framing against prompt injection.
+- **Deterministic Locator Validation:** 4-step post-processing guard preventing locator forgery and directory traversal.
+- **Graceful Error Handling:** Safe degradation on Ollama outages or malformed outputs without crashing.
+
+---
+
 ### Milestone M2 — Real Flutter Vertical Slice & Loopback Engine (Completed)
 Milestone M2 connects the native Flutter Windows desktop application to the local Python review engine over an authenticated loopback IPC boundary (`127.0.0.1:0`), executing real inference on CPU against Ollama (`qwen2.5-coder:3b`).
 
@@ -43,13 +53,6 @@ Milestone M2 connects the native Flutter Windows desktop application to the loca
   - Multi-variant privacy redaction: automatically scrubs Windows paths, usernames, emojis, and sensitive tokens.
 - **Deterministic Evidence Guard:**
   - Evaluates user claims and check receipts before LLM inference; enforces that unverified claims are marked `NEEDS_JUDGMENT` with clear limitations rather than hallucinated defects.
-
----
-
-### Milestone M1 — Real Local Reviewer Feasibility (Completed)
-- **Deterministic Baseline:** Zero-LLM reference engine (<5 ms) verifying criteria, receipts, and deferral markers.
-- **Sequential Model Evaluation:** Evaluated `gemma3:4b` vs `qwen2.5-coder:3b` across 8 canonical test fixtures.
-- **Bounded Packet Security:** Strict allowlisting, diff truncation (max 400 lines / 8 KB), and XML delimiter data-inertia framing against prompt injection.
 
 ---
 
