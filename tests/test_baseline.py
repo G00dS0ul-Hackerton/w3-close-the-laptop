@@ -1,0 +1,237 @@
+"""Unit tests for deterministic checklist baseline."""
+
+from steadydev.baseline import ChecklistBaseline
+from steadydev.models import (
+    ChangedFile,
+    CheckReceipt,
+    Finding,
+    FindingCategory,
+    FindingStatus,
+    ReviewPacket,
+)
+
+
+def test_baseline_clean_case(sample_clean_packet: ReviewPacket) -> None:
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(sample_clean_packet)
+    assert result.status == "clean"
+    assert len(result.findings) == 0
+    assert result.timing_ms["total_duration_ms"] < 20.0  # sub-millisecond execution
+    assert "No gaps detected by the baseline's limited rules" in result.restart_note
+    assert (
+        "does not establish that all requirements were verified" in result.restart_note
+    )
+
+
+def test_baseline_failed_check_receipt() -> None:
+    packet = ReviewPacket(
+        packet_id="pkt-fail-1",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="repo",
+        session_intention="Fix auth login logic",
+        acceptance_criteria=["Tests pass"],
+        changed_files=[ChangedFile(path="src/auth.py", diff="+fix\n")],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="r-fail",
+                command="pytest tests/test_auth.py",
+                exit_code=1,
+                output_summary="1 failed in 0.1s",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    assert result.status == "findings_detected"
+    assert any(
+        "Check execution failed with exit code 1" in f.description
+        for f in result.findings
+    )
+
+
+def test_baseline_does_not_retire_on_unrelated_receipt() -> None:
+    prior = Finding(
+        finding_id="f-layout-01",
+        category=FindingCategory.UNVERIFIED,
+        locator="lib/widgets/nav_bar.dart:18",
+        description="No check recorded for modified layout.",
+        status=FindingStatus.OPEN,
+    )
+    packet = ReviewPacket(
+        packet_id="pkt-unrelated-test",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="repo",
+        session_intention="Refactor helper logic",
+        acceptance_criteria=["Update helper"],
+        changed_files=[ChangedFile(path="lib/helper.dart", diff="+code\n")],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="r-unrelated",
+                command="flutter test test/helper_test.dart",
+                exit_code=0,
+                output_summary="1 passed (helper logic only, no viewport checks)",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+        prior_findings=[prior],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    # The unrelated helper test must NOT retire the layout finding!
+    assert "f-layout-01" not in result.retired_finding_ids
+
+
+def test_baseline_detects_missing_viewport_receipt() -> None:
+    packet = ReviewPacket(
+        packet_id="pkt-ui-1",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="ui-repo",
+        session_intention="Adjust mobile navigation layout",
+        acceptance_criteria=["Update mobile nav bar styling"],
+        changed_files=[
+            ChangedFile(
+                path="lib/widgets/nav_bar.dart",
+                diff="@@ -10,2 +10,2 @@\n-flex: 1\n+flex: 2\n",
+            )
+        ],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="r1",
+                command="flutter test test/unit_test.dart",
+                exit_code=0,
+                output_summary="All tests passed",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    assert result.status == "findings_detected"
+    assert len(result.findings) == 1
+    assert result.findings[0].category == FindingCategory.UNVERIFIED
+    assert "No check recorded for modified layout" in result.findings[0].description
+
+
+def test_baseline_respects_explicit_deferrals() -> None:
+    packet = ReviewPacket(
+        packet_id="pkt-def-1",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="repo",
+        session_intention="Add profile UI. Deferring viewport test to tomorrow.",
+        acceptance_criteria=["Profile widget created"],
+        changed_files=[
+            ChangedFile(path="lib/profile.dart", diff="+class Profile {}\n")
+        ],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="r1",
+                command="pytest",
+                exit_code=0,
+                output_summary="ok",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+        explicit_deferrals=["viewport test intentionally deferred to tomorrow"],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    # Viewport check finding suppressed because of explicit deferral
+    assert result.status == "clean"
+    assert len(result.findings) == 0
+
+
+def test_baseline_dart_non_layout_not_flagged() -> None:
+    """Dart utility files without layout elements must not trigger layout missing-check warnings."""
+    packet = ReviewPacket(
+        packet_id="pkt-dart-util",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="flutter-repo",
+        session_intention="Update string util",
+        acceptance_criteria=["Update trimName helper", "Unit tests pass"],
+        changed_files=[
+            ChangedFile(
+                path="lib/utils/string_helper.dart",
+                diff="@@ -5,3 +5,3 @@\n-String trimName(String s) => s.trim();\n+String trimName(String s) => s.trim().toLowerCase();\n",
+            )
+        ],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="r1",
+                command="flutter test test/string_helper_test.dart",
+                exit_code=0,
+                output_summary="1 passed in 0.2s",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+    )
+    baseline = ChecklistBaseline()
+    res = baseline.evaluate(packet)
+    # Utility dart file with test must NOT be flagged as missing viewport/layout checks!
+    assert res.status == "clean"
+    assert len(res.findings) == 0
+
+
+def test_baseline_reconciles_prior_unverified_finding() -> None:
+    prior = Finding(
+        finding_id="f-old-99",
+        category=FindingCategory.UNVERIFIED,
+        locator="lib/nav.dart:1",
+        description="No check recorded for modified layout.",
+        status=FindingStatus.OPEN,
+    )
+    packet = ReviewPacket(
+        packet_id="pkt-reconcile-1",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="repo",
+        session_intention="Add viewport test",
+        acceptance_criteria=["Verify layout"],
+        changed_files=[
+            ChangedFile(path="test/nav_viewport_test.dart", diff="+test()\n")
+        ],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="rcpt-vp",
+                command="flutter test test/nav_viewport_test.dart",
+                exit_code=0,
+                output_summary="1 passed",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+        prior_findings=[prior],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    assert "f-old-99" in result.retired_finding_ids
+
+
+def test_baseline_is_blind_to_semantic_redirect_mismatch() -> None:
+    """Proves baseline limitation: when code contradicts intent but tests pass, baseline passes."""
+    packet = ReviewPacket(
+        packet_id="pkt-mismatch-1",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="repo",
+        session_intention="Redirect authenticated users to /dashboard",
+        acceptance_criteria=["Redirect to /dashboard"],
+        changed_files=[
+            ChangedFile(
+                path="src/views.py",
+                diff="@@ -40,3 +40,3 @@\n-return redirect('/login')\n+return redirect('/home')\n",
+            )
+        ],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="r1",
+                command="pytest tests/test_views.py",
+                exit_code=0,
+                output_summary="1 passed (checked status 302)",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    # The baseline only sees: code changed, test passed -> reports clean!
+    # This precisely proves why the open-source LLM is essential for semantic understanding.
+    assert result.status == "clean"
+    assert len(result.findings) == 0
