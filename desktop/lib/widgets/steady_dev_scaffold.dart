@@ -50,8 +50,9 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
   @override
   void initState() {
     super.initState();
-    _loadInitialSampleData();
-    if (widget.apiClient != null) {
+    if (widget.apiClient == null) {
+      _loadInitialSampleData();
+    } else {
       _loadSessionFromEngine();
     }
   }
@@ -68,9 +69,7 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
           _criteria.clear();
           _criteria.addAll(sessionData.criteria);
         }
-        if (sessionData.findings.isNotEmpty) {
-          _findings = sessionData.findings;
-        }
+        _findings = sessionData.findings;
         _receipts = sessionData.checkReceipts;
         if (sessionData.restartNote.isNotEmpty) {
           _restartNote = sessionData.restartNote;

@@ -36,7 +36,7 @@ class OllamaClient:
         self,
         base_url: str = "http://127.0.0.1:11434",
         connect_timeout: float = 10.0,
-        read_timeout: float = 300.0,
+        read_timeout: float | None = None,
         client: httpx.Client | None = None,
     ):
         self.base_url = base_url.rstrip("/")
@@ -175,8 +175,13 @@ class OllamaClient:
                 f"Ollama daemon unreachable at {self.base_url}"
             ) from exc
         except httpx.TimeoutException as exc:
+            timeout_desc = (
+                f"{self.timeout.read}s"
+                if self.timeout.read is not None
+                else "unlimited read timeout"
+            )
             raise OllamaTimeoutError(
-                f"Inference request for model '{model}' timed out after {self.timeout.read}s"
+                f"Inference request for model '{model}' timed out after {timeout_desc}"
             ) from exc
         except httpx.HTTPStatusError as exc:
             raise OllamaResponseError(

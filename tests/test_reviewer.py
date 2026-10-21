@@ -14,6 +14,11 @@ def test_strip_markdown_fences() -> None:
     assert strip_markdown_fences(plain) == '{"status": "clean"}'
 
 
+def test_ollama_client_default_timeout_is_unlimited() -> None:
+    client = OllamaClient()
+    assert client.timeout.read is None
+
+
 def test_validate_locator() -> None:
     allowlisted = {"src/auth.py", "lib/ui.dart"}
 
