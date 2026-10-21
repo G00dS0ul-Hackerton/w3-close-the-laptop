@@ -10,8 +10,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
+!desktop/lib/
 parts/
 sdist/
 var/
@@ -52,3 +53,12 @@ Thumbs.db
 
 # SteadyDev local runtime reviews and logs
 .steadydev/
+
+# Flutter & Dart build artifacts
+.dart_tool/
+desktop/.dart_tool/
+desktop/build/
+desktop/windows/flutter/ephemeral/
+.flutter-plugins
+.flutter-plugins-dependencies
+

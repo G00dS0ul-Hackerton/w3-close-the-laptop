@@ -9,14 +9,24 @@ from steadydev.models import ChangedFile, CheckReceipt, Finding, ReviewPacket
 
 # Excluded directory and file patterns
 EXCLUDED_PATTERNS = [
-    r"^\.git[\\/]",
-    r"^\.venv[\\/]",
-    r"^__pycache__[\\/]",
-    r"^node_modules[\\/]",
-    r"^\.dart_tool[\\/]",
-    r"^build[\\/]",
-    r"^dist[\\/]",
-    r"^\.steadydev[\\/]",
+    r"(?:^|[\\/])\.git(?:[\\/]|$)",
+    r"(?:^|[\\/])\.venv(?:[\\/]|$)",
+    r"(?:^|[\\/])__pycache__(?:[\\/]|$)",
+    r"(?:^|[\\/])node_modules(?:[\\/]|$)",
+    r"(?:^|[\\/])\.dart_tool(?:[\\/]|$)",
+    r"(?:^|[\\/])build(?:[\\/]|$)",
+    r"(?:^|[\\/])dist(?:[\\/]|$)",
+    r"(?:^|[\\/])\.steadydev(?:[\\/]|$)",
+    # SSH keys and cloud credentials
+    r"(?:^|[\\/])id_(?:rsa|ed25519|ecdsa|dsa)(?:\.pub)?$",
+    r"(?:^|[\\/])credentials\.json$",
+    r"(?:^|[\\/])service[-_]account.*\.json$",
+    # Certificates and private keys
+    r"\.pem$",
+    r"\.key$",
+    r"\.crt$",
+    r"\.pfx$",
+    # Database and binary formats
     r"\.sqlite[3]?$",
     r"\.db$",
     r"\.pyc$",
@@ -33,6 +43,9 @@ EXCLUDED_PATTERNS = [
     r"\.pdf$",
     r"\.zip$",
     r"\.tar\.gz$",
+    r"\.parquet$",
+    r"\.bin$",
+    r"\.wasm$",
 ]
 
 # Secret patterns
@@ -40,8 +53,13 @@ SECRET_PATTERNS = [
     r"sk-[a-zA-Z0-9_\-]{20,}",
     r"sk_[a-zA-Z0-9_\-]{20,}",
     r"ghp_[a-zA-Z0-9]{36,}",
+    r"github_pat_[a-zA-Z0-9_]{82}",
     r"xi-api-key\s*[:=]\s*['\"]?[a-zA-Z0-9_\-]{20,}",
     r"Bearer\s+[a-zA-Z0-9_\-\.]{25,}",
+    r"https://[a-f0-9]{32}@[a-z0-9\.\-]+/[0-9]+",  # Sentry DSN
+    r"AKIA[0-9A-Z]{16}",  # AWS Key ID
+    r"AIza[0-9A-Za-z\-_]{35}",  # Google/Gemini Key
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----",  # PEM Key
 ]
 
 # Sensitive Windows paths and dynamic username tokens (C-2, P-3)
@@ -53,25 +71,68 @@ WINDOWS_PATH_VARIANTS = [
 
 _current_user = os.environ.get("USERNAME") or os.environ.get("USER") or ""
 _home_user = os.path.basename(os.path.expanduser("~"))
-USERNAME_TOKENS = [u for u in {_current_user, _home_user} if len(u) > 2]
+
+_raw_candidates = {_current_user, _home_user}
+_clean_tokens = set()
+for c in _raw_candidates:
+    if not c:
+        continue
+    _clean_tokens.add(c)
+    # Strip non-ascii / emoji characters to get plain token (e.g. 'JaneDoe' from 'JaneDoe🚀')
+    ascii_only = re.sub(r"[^\x20-\x7E]", "", c).strip()
+    if len(ascii_only) > 2:
+        _clean_tokens.add(ascii_only)
+    try:
+        from urllib.parse import quote
+
+        quoted = quote(c)
+        if quoted != c:
+            _clean_tokens.add(quoted)
+    except (UnicodeError, ValueError):
+        pass
+
+# Check for 8.3 short name on Windows
+if os.name == "nt":
+    try:
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(500)
+        home_dir = os.path.expanduser("~")
+        if ctypes.windll.kernel32.GetShortPathNameW(home_dir, buf, 500):
+            short_base = os.path.basename(buf.value)
+            if short_base and len(short_base) > 2:
+                _clean_tokens.add(short_base)
+    except (OSError, AttributeError):
+        pass
+
+USERNAME_TOKENS = sorted(
+    [u for u in _clean_tokens if len(u) > 2], key=len, reverse=True
+)
 
 
 def normalize_path(path: str) -> str:
-    """Normalize file path to relative path with forward slashes."""
+    """Normalize file path to relative path with forward slashes and reject traversal."""
     p = path.replace("\\", "/")
     # Strip drive letters like C:/
     p = re.sub(r"^[a-zA-Z]:/", "", p)
     # Strip leading slashes
     p = p.lstrip("/")
+    # Reject traversal tokens
+    parts = [part for part in p.split("/") if part]
+    if ".." in parts:
+        raise ValueError(f"Directory traversal not permitted: {path}")
     return p
 
 
 def is_allowlisted(path: str) -> bool:
     """Check whether a path is allowed in the bounded review packet."""
-    norm = normalize_path(path)
-    base = os.path.basename(norm)
+    try:
+        norm = normalize_path(path)
+    except ValueError:
+        return False
+    base = os.path.basename(norm).lower()
 
-    # Strictly exclude .env and .env.* except .env.example
+    # Strictly exclude .env and .env.* except .env.example (case-insensitive)
     if base.startswith(".env"):
         return base == ".env.example"
 
@@ -102,7 +163,7 @@ def redact_sensitive_text(text: str) -> str:
 
 
 def truncate_diff(
-    diff: str, max_lines: int = 400, max_bytes: int = 8192
+    diff: str, max_lines: int = 250, max_bytes: int = 4096
 ) -> tuple[str, bool]:
     """Truncate diff hunks to safe line and byte bounds."""
     lines = diff.splitlines()
@@ -147,6 +208,7 @@ def build_review_packet(
     explicit_deferrals: list[str] | None = None,
     repo_name: str = "repo",
     max_files: int = 6,
+    max_aggregate_diff_bytes: int = 12288,
 ) -> ReviewPacket:
     """Construct a clean, sanitized, bounded review packet."""
     packet_id = f"pkt-{uuid.uuid4().hex[:8]}"
@@ -182,6 +244,30 @@ def build_review_packet(
         allowed_files = allowed_files[:max_files]
         omitted_files.extend([f.path for f in excess])
         is_truncated_overall = True
+
+    # Cap aggregate diff bytes across all allowed files to protect CPU context
+    total_bytes = 0
+    final_allowed_files: list[ChangedFile] = []
+    for af in allowed_files:
+        diff_len = len(af.diff.encode("utf-8"))
+        if total_bytes + diff_len > max_aggregate_diff_bytes:
+            remaining = max(0, max_aggregate_diff_bytes - total_bytes)
+            if remaining > 200:
+                trunc_bytes = af.diff.encode("utf-8")[:remaining].decode(
+                    "utf-8", errors="ignore"
+                )
+                trunc_bytes += "\n[DIFF TRUNCATED: aggregate packet byte limit reached]"
+                final_allowed_files.append(
+                    ChangedFile(path=af.path, status=af.status, diff=trunc_bytes)
+                )
+            else:
+                omitted_files.append(af.path)
+            is_truncated_overall = True
+            break
+        else:
+            final_allowed_files.append(af)
+            total_bytes += diff_len
+    allowed_files = final_allowed_files
 
     # Redact session intention and criteria
     clean_intention = redact_sensitive_text(session_intention)

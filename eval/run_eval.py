@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+
 from steadydev.baseline import ChecklistBaseline
 from steadydev.models import ReviewPacket
 from steadydev.ollama_client import OllamaClient, OllamaClientError

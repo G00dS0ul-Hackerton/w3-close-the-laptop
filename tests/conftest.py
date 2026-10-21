@@ -1,11 +1,52 @@
 """Shared test fixtures for SteadyDev."""
 
+import subprocess
+from pathlib import Path
+
 import pytest
+
 from steadydev.models import (
     ChangedFile,
     CheckReceipt,
     ReviewPacket,
 )
+
+
+@pytest.fixture
+def temp_git_repo(tmp_path: Path) -> Path:
+    """Initialize a disposable local Git repository fixture."""
+    repo = tmp_path / "mock_repo"
+    repo.mkdir()
+
+    # git init
+    subprocess.run(["git", "init"], cwd=str(repo), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "TestUser"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+
+    # Initial commit
+    init_file = repo / "README.md"
+    init_file.write_text("# Mock Project\nInitial line\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "README.md"], cwd=str(repo), check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+
+    return repo
 
 
 @pytest.fixture

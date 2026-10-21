@@ -2,6 +2,7 @@
 
 import httpx
 import pytest
+
 from steadydev.ollama_client import (
     OllamaClient,
     OllamaConnectionError,

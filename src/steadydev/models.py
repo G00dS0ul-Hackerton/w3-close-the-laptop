@@ -40,6 +40,19 @@ class FindingStatus(str, Enum):
     USER_REPORTED_RESOLVED = "user-reported-resolved"
     EVIDENCE_RETIRED = "evidence-retired"
 
+    @classmethod
+    def _missing_(cls, value: object) -> Any:
+        if isinstance(value, str):
+            val_norm = value.lower().replace("_", "-")
+            if "resolve" in val_norm:
+                return cls.USER_REPORTED_RESOLVED
+            if "retire" in val_norm:
+                return cls.EVIDENCE_RETIRED
+            for member in cls:
+                if member.value == val_norm or member.name.lower() == val_norm:
+                    return member
+        return cls.OPEN
+
 
 class CheckReceipt(BaseModel):
     receipt_id: str = Field(..., description="Unique receipt identifier")
@@ -51,7 +64,9 @@ class CheckReceipt(BaseModel):
 
 class Finding(BaseModel):
     finding_id: str = Field(default="", description="Unique finding ID")
-    category: FindingCategory = Field(..., description="Finding category")
+    category: FindingCategory = Field(
+        default=FindingCategory.EVIDENCE_MISMATCH, description="Finding category"
+    )
     locator: str = Field(
         ..., description="Relative file path and optional line: file:line"
     )
@@ -69,6 +84,15 @@ class Finding(BaseModel):
     def normalize_category(cls, v: Any) -> Any:
         if isinstance(v, str):
             res = FindingCategory._missing_(v)
+            if res:
+                return res
+        return v
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            res = FindingStatus._missing_(v)
             if res:
                 return res
         return v

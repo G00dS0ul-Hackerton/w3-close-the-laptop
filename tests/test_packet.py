@@ -1,5 +1,7 @@
 """Unit tests for bounded packet builder and privacy redaction."""
 
+import os
+
 from steadydev.models import ChangedFile, CheckReceipt
 from steadydev.packet import (
     build_review_packet,
@@ -134,3 +136,47 @@ def test_format_packet_for_prompt() -> None:
     assert "<file>.env</file>" in prompt_text
     assert 'timestamp_utc="2026-10-21T02:00:00Z"' in prompt_text
     assert "</review_context>" in prompt_text
+
+
+def test_path_traversal_rejection() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="Directory traversal"):
+        normalize_path("src/../../etc/passwd")
+
+    with pytest.raises(ValueError, match="Directory traversal"):
+        normalize_path("../secret.py")
+
+
+def test_nested_excluded_directories() -> None:
+    assert is_allowlisted("subfolder/.git/config") is False
+    assert is_allowlisted("packages/pkg/.venv/lib/site.py") is False
+    assert is_allowlisted("frontend/node_modules/package.json") is False
+
+
+def test_case_insensitive_env_and_sensitive_files() -> None:
+    assert is_allowlisted(".ENV") is False
+    assert is_allowlisted(".Env.local") is False
+    assert is_allowlisted(".env.production") is False
+    assert is_allowlisted(".env.example") is True
+    # Sensitive credentials and keys
+    assert is_allowlisted("id_rsa") is False
+    assert is_allowlisted("id_ed25519") is False
+    assert is_allowlisted("credentials.json") is False
+    assert is_allowlisted("server.pem") is False
+    assert is_allowlisted("private.key") is False
+
+
+def test_sentry_dsn_and_token_redaction() -> None:
+    raw = "DSN is https://abcdef1234567890abcdef1234567890@o1234.ingest.sentry.io/5678"
+    red = redact_sensitive_text(raw)
+    assert "abcdef1234567890" not in red
+    assert "[REDACTED_SECRET]" in red
+
+
+def test_c2_raw_username_redaction() -> None:
+    username = os.environ.get("USERNAME") or os.environ.get("USER") or "TestUser"
+    raw = f"Code authored by {username} in workspace"
+    red = redact_sensitive_text(raw)
+    assert username not in red
+    assert "[DEVELOPER_USER]" in red
