@@ -1,0 +1,29 @@
+[project]
+name = "steadydev"
+version = "0.1.0"
+description = "SteadyDev: A local-first, open-weight AI companion for ending work sessions with clarity."
+readme = "README.md"
+authors = [
+    { name = "G00dS0ul-Hackerton" }
+]
+requires-python = ">=3.12.10"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic>=2.14.1",
+]
+
+[project.urls]
+Repository = "https://github.com/G00dS0ul-Hackerton/w3-close-the-laptop"
+
+[project.scripts]
+steadydev = "steadydev.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]
