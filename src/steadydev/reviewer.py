@@ -12,6 +12,7 @@ from steadydev.models import (
     FindingStatus,
     ReviewPacket,
     ReviewResult,
+    compute_finding_id,
 )
 from steadydev.ollama_client import (
     OllamaClient,
@@ -164,47 +165,24 @@ class Reviewer:
         self.baseline = baseline or ChecklistBaseline()
         self.system_prompt = system_prompt or SYSTEM_PROMPT
 
-    def review(
-        self,
-        packet: ReviewPacket,
-        model_name: str | None = None,
-        use_baseline_fallback: bool = True,
-    ) -> ReviewResult:
-        """Execute review via baseline or specified local model."""
-        # Baseline-only execution
-        if not model_name:
-            return self.baseline.evaluate(packet)
+    def _invoke_single_model(
+        self, model_name: str, messages: list[dict]
+    ) -> tuple[dict | None, dict[str, float], str, str | None]:
+        """Invoke Ollama model and validate required JSON shape.
 
-        # Prepare prompt
-        prompt_context = format_packet_for_prompt(packet)
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {
-                "role": "user",
-                "content": f"Review this session context and emit JSON:\n\n{prompt_context}",
-            },
-        ]
-
-        # Call Ollama
+        Propagates OllamaConnectionError for short-circuiting.
+        Returns (parsed_dict, timings, raw_text, error_message).
+        """
         try:
             raw_response = self.ollama_client.chat(
                 model=model_name,
                 messages=messages,
                 json_format=True,
             )
-        except (OllamaConnectionError, OllamaTimeoutError, OllamaClientError) as exc:
-            if use_baseline_fallback:
-                fallback_result = self.baseline.evaluate(packet)
-                fallback_result.status = "fallback_baseline"
-                fallback_result.error = f"Model '{model_name}' failed ({type(exc).__name__}: {exc}). Fell back to baseline."
-                fallback_result.model_name = f"{model_name}-fallback-baseline"
-                return fallback_result
-            return ReviewResult(
-                packet_id=packet.packet_id,
-                status="unavailable",
-                model_name=model_name,
-                error=str(exc),
-            )
+        except OllamaConnectionError:
+            raise
+        except (OllamaTimeoutError, OllamaClientError) as exc:
+            return None, {}, "", f"{type(exc).__name__}: {exc}"
 
         raw_text = raw_response.get("content", "")
         timings = {
@@ -214,50 +192,18 @@ class Reviewer:
             "eval_duration_ms": raw_response.get("eval_duration_ms", 0.0),
         }
 
-        # Parse JSON output
         content = strip_markdown_fences(raw_text)
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as err:
-            if use_baseline_fallback:
-                fallback_result = self.baseline.evaluate(packet)
-                fallback_result.status = "fallback_baseline"
-                fallback_result.error = (
-                    f"Malformed model JSON: {err}. Fell back to baseline."
-                )
-                fallback_result.model_name = f"{model_name}-fallback-baseline"
-                fallback_result.raw_content = raw_text
-                fallback_result.timing_ms = timings
-                return fallback_result
-            return ReviewResult(
-                packet_id=packet.packet_id,
-                status="parse_error",
-                model_name=model_name,
-                raw_content=raw_text,
-                error=f"JSONDecodeError: {err}",
-                timing_ms=timings,
-            )
+            return None, timings, raw_text, f"Malformed model JSON: {err}"
 
-        # Validate complete response shape before interpretation
         if not isinstance(parsed, dict):
-            msg = f"Model response must be a JSON object, got {type(parsed).__name__}"
-            if use_baseline_fallback:
-                fallback_result = self.baseline.evaluate(packet)
-                fallback_result.status = "fallback_baseline"
-                fallback_result.error = (
-                    f"Invalid response shape: {msg}. Fell back to baseline."
-                )
-                fallback_result.model_name = f"{model_name}-fallback-baseline"
-                fallback_result.raw_content = raw_text
-                fallback_result.timing_ms = timings
-                return fallback_result
-            return ReviewResult(
-                packet_id=packet.packet_id,
-                status="parse_error",
-                model_name=model_name,
-                raw_content=raw_text,
-                error=msg,
-                timing_ms=timings,
+            return (
+                None,
+                timings,
+                raw_text,
+                f"Model response must be a JSON object, got {type(parsed).__name__}",
             )
 
         required_keys = {"status", "findings", "closing_summary", "restart_note"}
@@ -268,28 +214,20 @@ class Reviewer:
                 if missing_keys
                 else "'findings' field must be a list"
             )
-            if use_baseline_fallback:
-                fallback_result = self.baseline.evaluate(packet)
-                fallback_result.status = "fallback_baseline"
-                fallback_result.error = (
-                    f"Incomplete model response ({msg}). Fell back to baseline."
-                )
-                fallback_result.model_name = f"{model_name}-fallback-baseline"
-                fallback_result.raw_content = raw_text
-                fallback_result.raw_json = parsed
-                fallback_result.timing_ms = timings
-                return fallback_result
-            return ReviewResult(
-                packet_id=packet.packet_id,
-                status="parse_error",
-                model_name=model_name,
-                raw_content=raw_text,
-                raw_json=parsed,
-                error=msg,
-                timing_ms=timings,
-            )
+            return None, timings, raw_text, f"Incomplete model response ({msg})"
 
-        # Allowlisted paths in this packet
+        return parsed, timings, raw_text, None
+
+    def _process_model_json(
+        self,
+        parsed: dict,
+        packet: ReviewPacket,
+        model_name: str,
+        raw_text: str,
+        timings: dict[str, float],
+        error: str | None = None,
+    ) -> ReviewResult:
+        """Process validated model JSON dictionary into a ReviewResult."""
         allowlisted_paths = {f.path for f in packet.changed_files}
         prior_locators = {
             pf.locator.split(":")[0].strip().replace("\\", "/")
@@ -312,12 +250,17 @@ class Reviewer:
             category_raw = rf.get("category", "unverified")
             norm_cat = FindingCategory._missing_(category_raw)
 
+            desc = rf.get("description", "Observation")
+            f_id = compute_finding_id(
+                norm_cat or FindingCategory.NEEDS_JUDGMENT, locator, desc
+            )
+
             if not norm_cat:
                 finding = Finding(
-                    finding_id=f"m-{idx}",
+                    finding_id=f_id,
                     category=FindingCategory.NEEDS_JUDGMENT,
                     locator=locator,
-                    description=rf.get("description", "Observation")
+                    description=desc
                     + f" [Notice: unrecognized category '{category_raw}']",
                     evidence=rf.get("evidence", ""),
                     status=FindingStatus.OPEN,
@@ -333,10 +276,10 @@ class Reviewer:
             )
 
             finding = Finding(
-                finding_id=f"m-{idx}",
+                finding_id=f_id,
                 category=norm_cat,
                 locator=locator,
-                description=rf.get("description", "Observation"),
+                description=desc,
                 evidence=rf.get("evidence", ""),
                 status=status_val,
                 validation_error=val_err,
@@ -415,13 +358,6 @@ class Reviewer:
 
         status = "findings_detected" if findings else "clean"
 
-        timings = {
-            "total_duration_ms": raw_response.get("total_duration_ms", 0.0),
-            "load_duration_ms": raw_response.get("load_duration_ms", 0.0),
-            "prompt_eval_duration_ms": raw_response.get("prompt_eval_duration_ms", 0.0),
-            "eval_duration_ms": raw_response.get("eval_duration_ms", 0.0),
-        }
-
         return ReviewResult(
             packet_id=packet.packet_id,
             status=status,
@@ -433,4 +369,116 @@ class Reviewer:
             timing_ms=timings,
             raw_content=raw_text,
             raw_json=parsed,
+            error=error,
+        )
+
+    def review(
+        self,
+        packet: ReviewPacket,
+        model_name: str | None = "gemma3:4b",
+        fallback_model_name: str | None = "qwen2.5-coder:3b",
+        use_baseline_fallback: bool = True,
+    ) -> ReviewResult:
+        """Execute review via 3-tier cascade: primary -> fallback model -> baseline checklist."""
+        # Baseline-only execution
+        if not model_name:
+            return self.baseline.evaluate(packet)
+
+        # Prepare prompt
+        prompt_context = format_packet_for_prompt(packet)
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {
+                "role": "user",
+                "content": f"Review this session context and emit JSON:\n\n{prompt_context}",
+            },
+        ]
+
+        # 1. Primary Model Attempt
+        try:
+            parsed, timings, raw_text, primary_err = self._invoke_single_model(
+                model_name, messages
+            )
+        except OllamaConnectionError as exc:
+            # Short-circuit: daemon offline, do NOT waste calls on fallback model
+            if use_baseline_fallback:
+                fb = self.baseline.evaluate(packet)
+                fb.status = "fallback_baseline"
+                fb.error = f"Model '{model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
+                fb.model_name = f"{model_name}-fallback-baseline"
+                return fb
+            return ReviewResult(
+                packet_id=packet.packet_id,
+                status="unavailable",
+                model_name=model_name,
+                error=str(exc),
+            )
+
+        if parsed is not None:
+            return self._process_model_json(
+                parsed=parsed,
+                packet=packet,
+                model_name=model_name,
+                raw_text=raw_text,
+                timings=timings,
+            )
+
+        # 2. Intermediate Fallback Model Attempt
+        last_raw_text = raw_text
+        last_timings = timings
+        combined_err = f"Model '{model_name}' failed ({primary_err})"
+
+        if fallback_model_name and fallback_model_name != model_name:
+            try:
+                parsed_fb, timings_fb, raw_text_fb, fb_err = self._invoke_single_model(
+                    fallback_model_name, messages
+                )
+            except OllamaConnectionError as exc:
+                if use_baseline_fallback:
+                    fb = self.baseline.evaluate(packet)
+                    fb.status = "fallback_baseline"
+                    fb.error = f"{combined_err} and Ollama connection failed ({exc}). Fell back to baseline."
+                    fb.model_name = f"{model_name}-fallback-baseline"
+                    return fb
+                return ReviewResult(
+                    packet_id=packet.packet_id,
+                    status="unavailable",
+                    model_name=fallback_model_name,
+                    error=str(exc),
+                )
+
+            if parsed_fb is not None:
+                fallback_note = f"Primary model '{model_name}' failed ({primary_err}). Fell back to fallback model '{fallback_model_name}'."
+                return self._process_model_json(
+                    parsed=parsed_fb,
+                    packet=packet,
+                    model_name=fallback_model_name,
+                    raw_text=raw_text_fb,
+                    timings=timings_fb,
+                    error=fallback_note,
+                )
+            else:
+                last_raw_text = raw_text_fb or raw_text
+                last_timings = timings_fb or timings
+                combined_err += (
+                    f"; fallback model '{fallback_model_name}' failed ({fb_err})"
+                )
+
+        # 3. Safety Floor: Baseline Checklist
+        if use_baseline_fallback:
+            fallback_result = self.baseline.evaluate(packet)
+            fallback_result.status = "fallback_baseline"
+            fallback_result.error = f"{combined_err}. Fell back to baseline."
+            fallback_result.model_name = f"{model_name}-fallback-baseline"
+            fallback_result.raw_content = last_raw_text
+            fallback_result.timing_ms = last_timings
+            return fallback_result
+
+        return ReviewResult(
+            packet_id=packet.packet_id,
+            status="parse_error",
+            model_name=model_name,
+            raw_content=last_raw_text,
+            error=combined_err,
+            timing_ms=last_timings,
         )

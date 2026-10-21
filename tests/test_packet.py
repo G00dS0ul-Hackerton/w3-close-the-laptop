@@ -180,3 +180,24 @@ def test_c2_raw_username_redaction() -> None:
     red = redact_sensitive_text(raw)
     assert username not in red
     assert "[DEVELOPER_USER]" in red
+
+
+def test_diff_budgeting_defaults_and_caps() -> None:
+    """Verifies that max_files is 6 and max_aggregate_diff_bytes is 12288 by default."""
+    files = [
+        ChangedFile(path=f"file{i}.py", diff="+" + "a" * 2500 + "\n")
+        for i in range(1, 8)
+    ]
+    packet = build_review_packet(
+        session_intention="Test diff budget",
+        acceptance_criteria=["Pass"],
+        changed_files=files,
+        check_receipts=[],
+    )
+    # File 7 should be omitted because max_files is 6
+    assert len(packet.changed_files) <= 6
+    assert "file7.py" in packet.omitted_files
+    # Total diff bytes should not exceed 12288
+    total_bytes = sum(len(f.diff.encode("utf-8")) for f in packet.changed_files)
+    assert total_bytes <= 12288 + 200  # allowing for the truncation notice tag
+    assert packet.truncated is True

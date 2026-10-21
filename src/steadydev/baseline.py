@@ -13,6 +13,7 @@ from steadydev.models import (
     FindingStatus,
     ReviewPacket,
     ReviewResult,
+    compute_finding_id,
 )
 
 LAYOUT_EXTENSIONS = {".html", ".css", ".scss", ".jsx", ".tsx", ".vue"}
@@ -81,12 +82,18 @@ class ChecklistBaseline:
         # 0. Check for failed receipts
         for r in packet.check_receipts:
             if r.exit_code != 0:
+                loc = changed_paths[0] if changed_paths else "repo:1"
+                desc = (
+                    f"Check execution failed with exit code {r.exit_code}: {r.command}"
+                )
                 findings.append(
                     Finding(
-                        finding_id=f"base-f-{len(findings) + 1}",
+                        finding_id=compute_finding_id(
+                            FindingCategory.UNVERIFIED, loc, desc
+                        ),
                         category=FindingCategory.UNVERIFIED,
-                        locator=changed_paths[0] if changed_paths else "repo:1",
-                        description=f"Check execution failed with exit code {r.exit_code}: {r.command}",
+                        locator=loc,
+                        description=desc,
                         evidence=r.output_summary
                         or f"Command '{r.command}' exited with code {r.exit_code}",
                         status=FindingStatus.OPEN,
@@ -133,12 +140,16 @@ class ChecklistBaseline:
             )
             if not is_deferred:
                 layout_file = layout_files[0].path if layout_files else "layout"
+                loc = f"{layout_file}:1"
+                desc = "No check recorded for modified layout."
                 findings.append(
                     Finding(
-                        finding_id=f"base-f-{len(findings) + 1}",
+                        finding_id=compute_finding_id(
+                            FindingCategory.UNVERIFIED, loc, desc
+                        ),
                         category=FindingCategory.UNVERIFIED,
-                        locator=f"{layout_file}:1",
-                        description="No check recorded for modified layout.",
+                        locator=loc,
+                        description=desc,
                         evidence="Layout files modified without an attached passing viewport, widget, or screenshot test receipt.",
                         status=FindingStatus.OPEN,
                     )
@@ -147,12 +158,16 @@ class ChecklistBaseline:
         # 3. Check code modifications for test receipts
         has_code_changes = bool(changed_extensions.intersection(CODE_EXTENSIONS))
         if has_code_changes and not passing_receipts:
+            loc = changed_paths[0] if changed_paths else "repo:1"
+            desc = "No passing check recorded for modified code."
             findings.append(
                 Finding(
-                    finding_id=f"base-f-{len(findings) + 1}",
+                    finding_id=compute_finding_id(
+                        FindingCategory.UNVERIFIED, loc, desc
+                    ),
                     category=FindingCategory.UNVERIFIED,
-                    locator=changed_paths[0] if changed_paths else "repo:1",
-                    description="No passing check recorded for modified code.",
+                    locator=loc,
+                    description=desc,
                     evidence="Source code modified with zero attached passing check receipts.",
                     status=FindingStatus.OPEN,
                 )
@@ -175,12 +190,16 @@ class ChecklistBaseline:
                     for p in changed_paths
                 )
                 if not doc_touched:
+                    loc = "README.md:1"
+                    desc = f"Documentation criterion not verified: {criterion}"
                     findings.append(
                         Finding(
-                            finding_id=f"base-f-{len(findings) + 1}",
+                            finding_id=compute_finding_id(
+                                FindingCategory.UNVERIFIED, loc, desc
+                            ),
                             category=FindingCategory.UNVERIFIED,
-                            locator="README.md:1",
-                            description=f"Documentation criterion not verified: {criterion}",
+                            locator=loc,
+                            description=desc,
                             evidence=f"Criterion '{criterion}' specified but no documentation files modified.",
                             status=FindingStatus.OPEN,
                         )
@@ -193,11 +212,32 @@ class ChecklistBaseline:
             f"Baseline Checklist Review: {len(packet.changed_files)} files modified, "
             f"{len(packet.check_receipts)} checks recorded, {len(findings)} unverified gaps."
         )
-        restart_note = (
-            "Continue by addressing open unverified checks."
-            if findings
-            else "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified."
+
+        # Synthesize intention-aware and gap-aware restart note
+        intent = (
+            packet.session_intention.strip().rstrip(".")
+            if packet.session_intention
+            else "session goals"
         )
+        files_str = (
+            ", ".join(f.path for f in packet.changed_files[:3]) or "project files"
+        )
+        if len(packet.changed_files) > 3:
+            files_str += f" (+{len(packet.changed_files) - 3} more)"
+
+        if findings:
+            top_gap = findings[0]
+            loc = top_gap.locator or "modified files"
+            restart_note = (
+                f"Tomorrow: Pick up by running tests for unverified gap in '{loc}' "
+                f"to advance session goal ('{intent}')."
+            )
+        else:
+            restart_note = (
+                f"Tomorrow: Continue '{intent}' by verifying modified files ({files_str}) "
+                f"against remaining acceptance criteria. "
+                f"(No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.)"
+            )
 
         return ReviewResult(
             packet_id=packet.packet_id,

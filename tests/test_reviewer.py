@@ -355,3 +355,122 @@ def test_reviewer_prior_finding_locator_not_flagged_as_traversal() -> None:
     # Locator must be validated and not downgraded to needs_judgment with an unverified locator warning!
     assert res.findings[0].category == FindingCategory.UNVERIFIED
     assert "unverified locator" not in res.findings[0].description
+
+
+def test_reviewer_cascade_gemma_primary_success(
+    sample_clean_packet: ReviewPacket,
+) -> None:
+    """Cascade primary: gemma3:4b succeeds without needing fallback."""
+    mock_client = MagicMock(spec=OllamaClient)
+    mock_client.chat.return_value = {
+        "content": '{"status": "clean", "findings": [], "closing_summary": "Gemma review clean", "restart_note": "Gemma ready"}',
+        "total_duration_ms": 25000.0,
+    }
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(sample_clean_packet, model_name="gemma3:4b")
+    assert res.status == "clean"
+    assert res.model_name == "gemma3:4b"
+    assert res.closing_summary == "Gemma review clean"
+    assert mock_client.chat.call_count == 1
+    assert mock_client.chat.call_args[1]["model"] == "gemma3:4b"
+
+
+def test_reviewer_cascade_gemma_timeout_qwen_fallback_success(
+    sample_clean_packet: ReviewPacket,
+) -> None:
+    """Cascade fallback: gemma3:4b times out, qwen2.5-coder:3b is called and succeeds."""
+    from steadydev.ollama_client import OllamaTimeoutError
+
+    mock_client = MagicMock(spec=OllamaClient)
+
+    def side_effect(model: str, **kwargs):
+        if model == "gemma3:4b":
+            raise OllamaTimeoutError("Gemma timed out on CPU after 180s")
+        return {
+            "content": '{"status": "clean", "findings": [], "closing_summary": "Qwen fallback review clean", "restart_note": "Qwen ready"}',
+            "total_duration_ms": 15000.0,
+        }
+
+    mock_client.chat.side_effect = side_effect
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(
+        sample_clean_packet,
+        model_name="gemma3:4b",
+        fallback_model_name="qwen2.5-coder:3b",
+    )
+    assert res.status == "clean"
+    assert res.model_name == "qwen2.5-coder:3b"
+    assert res.closing_summary == "Qwen fallback review clean"
+    assert mock_client.chat.call_count == 2
+    assert "Fell back to fallback model" in (res.error or "")
+
+
+def test_reviewer_cascade_gemma_schema_error_qwen_fallback_success(
+    sample_clean_packet: ReviewPacket,
+) -> None:
+    """Cascade fallback: gemma3:4b returns broken JSON, qwen succeeds."""
+    mock_client = MagicMock(spec=OllamaClient)
+
+    def side_effect(model: str, **kwargs):
+        if model == "gemma3:4b":
+            return {
+                "content": '{"status": "success", "message": "Done"}',
+                "total_duration_ms": 2000.0,
+            }
+        return {
+            "content": '{"status": "clean", "findings": [], "closing_summary": "Qwen rescued review", "restart_note": "Qwen ready"}',
+            "total_duration_ms": 3000.0,
+        }
+
+    mock_client.chat.side_effect = side_effect
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(
+        sample_clean_packet,
+        model_name="gemma3:4b",
+        fallback_model_name="qwen2.5-coder:3b",
+    )
+    assert res.status == "clean"
+    assert res.model_name == "qwen2.5-coder:3b"
+    assert mock_client.chat.call_count == 2
+
+
+def test_reviewer_cascade_both_models_fail_drops_to_baseline(
+    sample_clean_packet: ReviewPacket,
+) -> None:
+    """Cascade safety floor: both Gemma and Qwen time out, engine drops to baseline."""
+    from steadydev.ollama_client import OllamaTimeoutError
+
+    mock_client = MagicMock(spec=OllamaClient)
+    mock_client.chat.side_effect = OllamaTimeoutError("Timed out")
+
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(
+        sample_clean_packet,
+        model_name="gemma3:4b",
+        fallback_model_name="qwen2.5-coder:3b",
+        use_baseline_fallback=True,
+    )
+    assert res.status == "fallback_baseline"
+    assert "baseline" in res.model_name
+    assert mock_client.chat.call_count == 2
+    assert "Fell back to baseline" in res.error
+
+
+def test_reviewer_cascade_connection_error_short_circuits_to_baseline(
+    sample_clean_packet: ReviewPacket,
+) -> None:
+    """Connection short-circuit: daemon offline drops immediately without wasting calls on Qwen."""
+    mock_client = MagicMock(spec=OllamaClient)
+    mock_client.chat.side_effect = OllamaConnectionError("Connection refused")
+
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(
+        sample_clean_packet,
+        model_name="gemma3:4b",
+        fallback_model_name="qwen2.5-coder:3b",
+        use_baseline_fallback=True,
+    )
+    assert res.status == "fallback_baseline"
+    assert "baseline" in res.model_name
+    # Crucial: chat must only be called ONCE!
+    assert mock_client.chat.call_count == 1

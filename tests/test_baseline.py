@@ -235,3 +235,65 @@ def test_baseline_is_blind_to_semantic_redirect_mismatch() -> None:
     # This precisely proves why the open-source LLM is essential for semantic understanding.
     assert result.status == "clean"
     assert len(result.findings) == 0
+
+
+def test_baseline_generates_intention_aware_restart_note_with_open_findings() -> None:
+    """When open unverified findings exist, restart note explicitly names the gap and intention."""
+    packet = ReviewPacket(
+        packet_id="pkt-gap-1",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="sample-project",
+        session_intention="Implement biometric login and fix auth tokens",
+        acceptance_criteria=["Auth tests pass"],
+        changed_files=[
+            ChangedFile(
+                path="src/auth.py", diff="@@ -1,3 +1,3 @@\n+def login(): pass\n"
+            )
+        ],
+        check_receipts=[],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    assert result.status == "findings_detected"
+    assert len(result.findings) > 0
+    # Must NOT be the old generic static string
+    assert result.restart_note != "Continue by addressing open unverified checks."
+    # Must be intention-aware and mention the modified file or gap
+    assert "src/auth.py" in result.restart_note
+    assert (
+        "biometric login" in result.restart_note.lower()
+        or "auth" in result.restart_note.lower()
+    )
+
+
+def test_baseline_generates_intention_aware_restart_note_when_clean() -> None:
+    """When clean, restart note connects intention to remaining criteria without empty claims."""
+    packet = ReviewPacket(
+        packet_id="pkt-clean-intent",
+        timestamp_utc="2026-10-21T02:00:00Z",
+        repo_name="sample-project",
+        session_intention="Verify dark theme contrast and update tokens",
+        acceptance_criteria=["Tokens meet WCAG AA"],
+        changed_files=[
+            ChangedFile(
+                path="lib/theme.dart", diff="@@ -1,2 +1,2 @@\n+const dark = 0x001a06;\n"
+            )
+        ],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="rcpt-contrast",
+                command="flutter test test/theme_test.dart",
+                exit_code=0,
+                output_summary="1 passed",
+                timestamp_utc="2026-10-21T02:00:00Z",
+            )
+        ],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    assert result.status == "clean"
+    assert (
+        "dark theme contrast" in result.restart_note.lower()
+        or "tokens" in result.restart_note.lower()
+    )
+    assert "lib/theme.dart" in result.restart_note

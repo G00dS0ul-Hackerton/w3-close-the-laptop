@@ -36,7 +36,7 @@ class OllamaClient:
         self,
         base_url: str = "http://127.0.0.1:11434",
         connect_timeout: float = 10.0,
-        read_timeout: float = 180.0,
+        read_timeout: float = 300.0,
         client: httpx.Client | None = None,
     ):
         self.base_url = base_url.rstrip("/")
