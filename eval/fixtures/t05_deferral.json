@@ -1,0 +1,32 @@
+{
+  "packet_id": "pkt-eval-t05",
+  "timestamp_utc": "2026-10-21T02:00:00Z",
+  "repo_name": "sample-user-service",
+  "session_intention": "Implement user profile editing endpoint. Database migration is intentionally deferred until tomorrow.",
+  "acceptance_criteria": [
+    "1. Add profile serialization fields",
+    "2. Database migration intentionally deferred to next session"
+  ],
+  "changed_files": [
+    {
+      "path": "src/profile.py",
+      "status": "modified",
+      "diff": "@@ -10,3 +10,6 @@ class UserProfile:\n     username: str\n+    bio: str = ''\n+    website: str = ''\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t05-01",
+      "command": "pytest -q tests/test_profile.py",
+      "exit_code": 0,
+      "output_summary": "3 passed in 0.05s",
+      "timestamp_utc": "2026-10-21T02:05:00Z"
+    }
+  ],
+  "prior_findings": [],
+  "explicit_deferrals": [
+    "Database migration intentionally deferred to tomorrow's session"
+  ],
+  "truncated": false,
+  "omitted_files": []
+}

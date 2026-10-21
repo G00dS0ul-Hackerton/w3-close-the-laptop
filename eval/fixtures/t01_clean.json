@@ -1,0 +1,35 @@
+{
+  "packet_id": "pkt-eval-t01",
+  "timestamp_utc": "2026-10-21T02:00:00Z",
+  "repo_name": "sample-auth-service",
+  "session_intention": "Refactor user authentication token expiration helper",
+  "acceptance_criteria": [
+    "1. Login helper validates token expiration timestamp against current UTC time",
+    "2. Unit test coverage passes with exit code 0"
+  ],
+  "changed_files": [
+    {
+      "path": "src/auth.py",
+      "status": "modified",
+      "diff": "@@ -15,7 +15,9 @@ def validate_token(token: str) -> bool:\n     if not token:\n         return False\n-    return True\n+    expiry = get_token_expiry(token)\n+    return expiry > datetime.now(timezone.utc)\n"
+    },
+    {
+      "path": "tests/test_auth.py",
+      "status": "modified",
+      "diff": "@@ -28,3 +28,8 @@ def test_empty_token():\n     assert validate_token('') is False\n+\n+def test_expired_token():\n+    token = create_test_token(expired=True)\n+    assert validate_token(token) is False\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t01-01",
+      "command": "pytest -q tests/test_auth.py",
+      "exit_code": 0,
+      "output_summary": "2 passed in 0.04s",
+      "timestamp_utc": "2026-10-21T02:05:00Z"
+    }
+  ],
+  "prior_findings": [],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

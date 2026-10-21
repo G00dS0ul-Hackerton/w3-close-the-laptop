@@ -1,0 +1,1299 @@
+{
+  "benchmark_time_utc": "2026-10-21T03:44:41.710723+00:00",
+  "ollama_version": "0.40.6",
+  "prompt_variant": "tuned",
+  "prompt_sha256": "dc86f8c6361ea35acf71d6ebbed60c4430f48e15e1c85aef0dd1193911ea5c39",
+  "git_provenance": "untracked_working_tree",
+  "code_manifest": {
+    "manifest_sha256": "468acdd1b2246ee335703b5676258a1dfbbc881959e813b1f8054b0eddc66bda",
+    "manifest_file_count": 25,
+    "git_head": null,
+    "git_dirty": true,
+    "files": [
+      {
+        "path": "eval/fixtures/t01_clean.json",
+        "sha256": "ba86cc8e79b816eaee0f695fdfb9e68d1069b922e05b6f8ddbc92eb3e43ae4c5",
+        "size_bytes": 1315
+      },
+      {
+        "path": "eval/fixtures/t02_mismatch.json",
+        "sha256": "d79d9512c52c9e42e277794ec0a90843e4110817bd301562941c47f370deb9e8",
+        "size_bytes": 1028
+      },
+      {
+        "path": "eval/fixtures/t03_stale_docs.json",
+        "sha256": "3f1e32bb0fa5088d79f8c37011ed0b54a93e72dad03ff2bfcc8af6d362fc5b89",
+        "size_bytes": 1235
+      },
+      {
+        "path": "eval/fixtures/t04_missing_receipt.json",
+        "sha256": "68e59aeb795184deded84e390959e05ea524163b6cde4def44aa62425bf15ed2",
+        "size_bytes": 1177
+      },
+      {
+        "path": "eval/fixtures/t04_v2_explicit_viewport.json",
+        "sha256": "5cf9155a5e9813c7c60b5b32d1c036ac573632c6d9a1be6c48a6aac56349f59c",
+        "size_bytes": 1270
+      },
+      {
+        "path": "eval/fixtures/t05_deferral.json",
+        "sha256": "7c9746d8576cb76b13e929f788dedaa1517b2d65facd412637edc8cca07af787",
+        "size_bytes": 1011
+      },
+      {
+        "path": "eval/fixtures/t06_reconciled.json",
+        "sha256": "24bf66908f70b042e9f38295d30154fccbb302b18bacfccb8b9523f1beaa45d5",
+        "size_bytes": 1347
+      },
+      {
+        "path": "eval/fixtures/t06a_supported_retirement.json",
+        "sha256": "42362ec83b7beac2c33cf672b680d67d94693f41b5b553daa2587aa91546ad0c",
+        "size_bytes": 1373
+      },
+      {
+        "path": "eval/fixtures/t06b_insufficient_evidence.json",
+        "sha256": "0f650de95799b79096ed21077cbeb7f786589909c2a1ad917fa0323eee679a87",
+        "size_bytes": 1232
+      },
+      {
+        "path": "eval/run_eval.py",
+        "sha256": "13d9821f832c0f984028675f1fa8d8754e719e69e0e7e6c54fac06281b9ae0af",
+        "size_bytes": 27252
+      },
+      {
+        "path": "pyproject.toml",
+        "sha256": "fcd8b20577d73d3d690fffe114d99b09baaeb8ed39eb945655cc7664b1143570",
+        "size_bytes": 615
+      },
+      {
+        "path": "src/steadydev/__init__.py",
+        "sha256": "0ac86ccd4a7508c316c697374cb6f7327d4fbeadf25cac724e8325f4bde8678a",
+        "size_bytes": 119
+      },
+      {
+        "path": "src/steadydev/baseline.py",
+        "sha256": "41b3f3d2e26e46cc14e6c189e391ce6c29b1dd62df5dd4703836df5a73fde713",
+        "size_bytes": 8652
+      },
+      {
+        "path": "src/steadydev/models.py",
+        "sha256": "6ee001d5e5f9e6fb7c138f9dad2640292bf3232bb7fa470954b5ffee4166a935",
+        "size_bytes": 5736
+      },
+      {
+        "path": "src/steadydev/ollama_client.py",
+        "sha256": "815069fd6e93e1acfba7827dbb151a1d416343567f5722fcb7178b71062d4bea",
+        "size_bytes": 6803
+      },
+      {
+        "path": "src/steadydev/packet.py",
+        "sha256": "316ce148a8fc1964fdc14471f8ee82827047bb5468f6b01593a88d03386c0d3a",
+        "size_bytes": 9188
+      },
+      {
+        "path": "src/steadydev/reviewer.py",
+        "sha256": "166d4dd734c5dcb0f59aa78fd406d4ce57fed89bbff56164ac77d5cadb1b33d1",
+        "size_bytes": 19194
+      },
+      {
+        "path": "tests/conftest.py",
+        "sha256": "2c8a860a9e6aa386f57ed90c50c35d1f78cf6bbca48ab96f79639e4ea88d8349",
+        "size_bytes": 1205
+      },
+      {
+        "path": "tests/test_adversarial.py",
+        "sha256": "734aaf58c2f33e4f2b0bbe3ed9d3aa33cf88ce31567d9a8ead68d124a391f0b7",
+        "size_bytes": 3802
+      },
+      {
+        "path": "tests/test_baseline.py",
+        "sha256": "f75f5a3b5d123ab931f5566c8885cfe9d717be94660f9c79efb2c46529fade72",
+        "size_bytes": 8630
+      },
+      {
+        "path": "tests/test_models.py",
+        "sha256": "6fcf03a9d18bb9d67378a833738094e9612c18af9ebc64b80dff3a65d4b9d000",
+        "size_bytes": 1281
+      },
+      {
+        "path": "tests/test_ollama_client.py",
+        "sha256": "8039352a806611aec37540f50c885d62ea4d837ce24db201ca8cfeb578003f86",
+        "size_bytes": 2794
+      },
+      {
+        "path": "tests/test_packet.py",
+        "sha256": "a8244d45eabd6b5e71ad8f28059b2e0c0564a3dc20d0f937d6de4988b504bce2",
+        "size_bytes": 4638
+      },
+      {
+        "path": "tests/test_reviewer.py",
+        "sha256": "180ea963a4d15b651b9890fb19f76e0a6b92cef78ba0ecd15066eb28c343f824",
+        "size_bytes": 14559
+      },
+      {
+        "path": "tests/test_run_eval.py",
+        "sha256": "def82358ce84bb2198f94c0bfd09afb7233d07f33bf3c4929055aae9cda3ca44",
+        "size_bytes": 6120
+      }
+    ]
+  },
+  "screening_mode": "AUTOMATED_SCREENING",
+  "semantic_review_status": "NOT_REVIEWED",
+  "baseline": {
+    "pkt-eval-t01": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 2 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "CORRECT_CLEAN",
+          "detail": "Zero false alarms emitted on clean session."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.13869999929738697
+    },
+    "pkt-eval-t02": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "MISSED_GAP",
+          "detail": "Missed semantic route redirect contradiction."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.024200000552809797
+    },
+    "pkt-eval-t03": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 2 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "MISSED_GAP",
+          "detail": "Missed stale README route (assumed completion from touched file)."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.02350000067963265
+    },
+    "pkt-eval-t04-v2": {
+      "status": "findings_detected",
+      "findings_count": 1,
+      "findings": [
+        {
+          "finding_id": "base-f-1",
+          "category": "unverified",
+          "locator": "lib/widgets/nav_bar.dart:1",
+          "description": "No check recorded for modified layout.",
+          "evidence": "Layout files modified without an attached passing viewport, widget, or screenshot test receipt.",
+          "status": "open",
+          "validation_error": null
+        }
+      ],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 1 unverified gaps.",
+      "restart_note": "Continue by addressing open unverified checks.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "CORRECT_DETECTION",
+          "detail": "Accurately flagged missing viewport check as unverified."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.04289999924367294
+    },
+    "pkt-eval-t05": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "CORRECT_DEFERRAL_HONORED",
+          "detail": "Honored explicit deferral; zero false alarms on postponed migration."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.03119999928458128
+    },
+    "pkt-eval-t06a": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [
+        "f-prior-nav-01"
+      ],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "CORRECT_RECONCILIATION",
+          "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.029400000130408444
+    },
+    "pkt-eval-t06b": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "CORRECT_NON_RETIREMENT",
+          "detail": "Correctly refused to retire f-prior-nav-01 due to insufficient evidence."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.02320000021427404
+    },
+    "pkt-eval-t06": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [
+        "f-prior-nav-01"
+      ],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.",
+      "layer_evaluation": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "CORRECT_RECONCILIATION",
+          "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.022199999875738285
+    }
+  },
+  "models": {
+    "qwen2.5-coder:3b": {
+      "cases": {
+        "pkt-eval-t01": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The user authentication token expiration helper was refactored to validate the token's expiration timestamp against the current UTC time, and the unit test coverage was updated to pass with exit code 0.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_CLEAN",
+              "detail": "Zero false alarms emitted on clean session."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The user authentication token expiration helper was refactored to validate the token's expiration timestamp against the current UTC time, and the unit test coverage was updated to pass with exit code 0.\",\n  \"restart_note\": \"No further action needed.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [],
+            "closing_summary": "The user authentication token expiration helper was refactored to validate the token's expiration timestamp against the current UTC time, and the unit test coverage was updated to pass with exit code 0.",
+            "restart_note": "No further action needed."
+          },
+          "wall_time_s": 15.020878999999695,
+          "load_ms": 7.6668,
+          "eval_ms": 14789.697,
+          "total_ms": 15019.0279,
+          "error": null
+        },
+        "pkt-eval-t02": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The post-login flow has been updated to redirect authenticated users to /dashboard. Route redirect tests have passed.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "MISSED_GAP",
+              "detail": "Missed semantic route redirect contradiction."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "DISMISSIVE_NOTE",
+              "notes": [
+                "Dismissed next steps with 'no further action needed' when follow-up was required."
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The post-login flow has been updated to redirect authenticated users to /dashboard. Route redirect tests have passed.\",\n  \"restart_note\": \"No further action needed.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [],
+            "closing_summary": "The post-login flow has been updated to redirect authenticated users to /dashboard. Route redirect tests have passed.",
+            "restart_note": "No further action needed."
+          },
+          "wall_time_s": 21.681667200000447,
+          "load_ms": 6.9087,
+          "eval_ms": 11237.858,
+          "total_ms": 21679.8694,
+          "error": null
+        },
+        "pkt-eval-t03": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The route endpoint was successfully upgraded to /api/v2/items, and the README.md was updated to reflect the new endpoint.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "MISSED_GAP",
+              "detail": "Missed stale README route (assumed completion from touched file)."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "DISMISSIVE_NOTE",
+              "notes": [
+                "Dismissed next steps with 'no further action needed' when follow-up was required."
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The route endpoint was successfully upgraded to /api/v2/items, and the README.md was updated to reflect the new endpoint.\",\n  \"restart_note\": \"No further action needed.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [],
+            "closing_summary": "The route endpoint was successfully upgraded to /api/v2/items, and the README.md was updated to reflect the new endpoint.",
+            "restart_note": "No further action needed."
+          },
+          "wall_time_s": 25.91168060000018,
+          "load_ms": 7.1241,
+          "eval_ms": 12022.101,
+          "total_ms": 25909.8048,
+          "error": null
+        },
+        "pkt-eval-t04-v2": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The nav bar layout has been restructured to use a LayoutBuilder for responsive sizing. The responsive rendering has been verified across mobile and desktop viewports with a test receipt.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "MISSED_GAP",
+              "detail": "Failed to detect missing viewport check receipt."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "DISMISSIVE_NOTE",
+              "notes": [
+                "Dismissed next steps with 'no further action needed' when follow-up was required."
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The nav bar layout has been restructured to use a LayoutBuilder for responsive sizing. The responsive rendering has been verified across mobile and desktop viewports with a test receipt.\",\n  \"restart_note\": \"No further action needed.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [],
+            "closing_summary": "The nav bar layout has been restructured to use a LayoutBuilder for responsive sizing. The responsive rendering has been verified across mobile and desktop viewports with a test receipt.",
+            "restart_note": "No further action needed."
+          },
+          "wall_time_s": 26.040847000000213,
+          "load_ms": 5.9178,
+          "eval_ms": 13612.768,
+          "total_ms": 26039.6695,
+          "error": null
+        },
+        "pkt-eval-t05": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "Profile serialization fields added to UserProfile class.",
+          "restart_note": "No further action needed. Database migration intentionally deferred to tomorrow.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_DEFERRAL_HONORED",
+              "detail": "Honored explicit deferral; zero false alarms on postponed migration."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "DISMISSIVE_NOTE",
+              "notes": [
+                "Dismissed next steps with 'no further action needed' when follow-up was required."
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"Profile serialization fields added to UserProfile class.\",\n  \"restart_note\": \"No further action needed. Database migration intentionally deferred to tomorrow.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [],
+            "closing_summary": "Profile serialization fields added to UserProfile class.",
+            "restart_note": "No further action needed. Database migration intentionally deferred to tomorrow."
+          },
+          "wall_time_s": 21.230734000000666,
+          "load_ms": 8.2991,
+          "eval_ms": 10524.864,
+          "total_ms": 21227.5975,
+          "error": null
+        },
+        "pkt-eval-t06a": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "Responsive viewport test added for nav bar, all tests passed.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_RECONCILIATION",
+              "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [\"f-prior-nav-01\"],\n  \"closing_summary\": \"Responsive viewport test added for nav bar, all tests passed.\",\n  \"restart_note\": \"No further action needed.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [
+              "f-prior-nav-01"
+            ],
+            "closing_summary": "Responsive viewport test added for nav bar, all tests passed.",
+            "restart_note": "No further action needed."
+          },
+          "wall_time_s": 26.4028330000001,
+          "load_ms": 8.6226,
+          "eval_ms": 12875.815,
+          "total_ms": 26400.3509,
+          "error": null
+        },
+        "pkt-eval-t06b": {
+          "trial_type": "WARM_RUN",
+          "status": "findings_detected",
+          "findings_count": 2,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "unverified",
+              "locator": "lib/utils/string_helper.dart:5",
+              "description": "No check recorded for modified layout.",
+              "evidence": "No check recorded for modified layout.",
+              "status": "open",
+              "validation_error": null
+            },
+            {
+              "finding_id": "m-retire-err-2",
+              "category": "needs_judgment",
+              "locator": "lib/widgets/nav_bar.dart:18",
+              "description": "Unsupported retirement ID 'f-prior-nav-01': no relevant passing receipt found verifying this finding.",
+              "evidence": "Proposed retirement ID: 'f-prior-nav-01'",
+              "status": "open",
+              "validation_error": "No relevant passing receipt for 'f-prior-nav-01'"
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "String helper function updated, but no check recorded for modified layout.",
+          "restart_note": "Review and run layout tests to ensure no unintended changes.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_NON_RETIREMENT",
+              "detail": "Correctly refused to retire f-prior-nav-01 due to insufficient evidence."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"findings_detected\",\n  \"findings\": [\n    {\n      \"category\": \"unverified\",\n      \"locator\": \"lib/utils/string_helper.dart:5\",\n      \"description\": \"No check recorded for modified layout.\",\n      \"evidence\": \"No check recorded for modified layout.\"\n    }\n  ],\n  \"retired_finding_ids\": [\"f-prior-nav-01\"],\n  \"closing_summary\": \"String helper function updated, but no check recorded for modified layout.\",\n  \"restart_note\": \"Review and run layout tests to ensure no unintended changes.\"\n}",
+          "raw_json": {
+            "status": "findings_detected",
+            "findings": [
+              {
+                "category": "unverified",
+                "locator": "lib/utils/string_helper.dart:5",
+                "description": "No check recorded for modified layout.",
+                "evidence": "No check recorded for modified layout."
+              }
+            ],
+            "retired_finding_ids": [
+              "f-prior-nav-01"
+            ],
+            "closing_summary": "String helper function updated, but no check recorded for modified layout.",
+            "restart_note": "Review and run layout tests to ensure no unintended changes."
+          },
+          "wall_time_s": 35.94741799999974,
+          "load_ms": 7.8269,
+          "eval_ms": 24379.709,
+          "total_ms": 35945.4552,
+          "error": null
+        },
+        "pkt-eval-t06": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "Responsive viewport test added for nav bar layout, all tests passed.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_RECONCILIATION",
+              "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [\"f-prior-nav-01\"],\n  \"closing_summary\": \"Responsive viewport test added for nav bar layout, all tests passed.\",\n  \"restart_note\": \"No further action needed.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [
+              "f-prior-nav-01"
+            ],
+            "closing_summary": "Responsive viewport test added for nav bar layout, all tests passed.",
+            "restart_note": "No further action needed."
+          },
+          "wall_time_s": 23.387175100000604,
+          "load_ms": 7.6268,
+          "eval_ms": 11344.549,
+          "total_ms": 23385.5168,
+          "error": null
+        }
+      },
+      "cold_probe": {
+        "trial_type": "COLD_PROBE",
+        "packet_id": "pkt-eval-t01",
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "retired_finding_ids": [],
+        "closing_summary": "The user authentication token expiration helper was refactored to validate token expiration against current UTC time, and unit test coverage was updated to pass with exit code 0.",
+        "restart_note": "No further action needed.",
+        "layer_evaluation": {
+          "screening_mode": "AUTOMATED_SCREENING",
+          "semantic_review_status": "NOT_REVIEWED",
+          "layer1_findings": {
+            "screening_verdict": "CORRECT_CLEAN",
+            "detail": "Zero false alarms emitted on clean session."
+          },
+          "layer2_summary": {
+            "screening_verdict": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "screening_verdict": "ACTIONABLE_CONTINUITY",
+            "notes": [
+              "Actionable next steps provided"
+            ]
+          }
+        },
+        "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The user authentication token expiration helper was refactored to validate token expiration against current UTC time, and unit test coverage was updated to pass with exit code 0.\",\n  \"restart_note\": \"No further action needed.\"\n}",
+        "raw_json": {
+          "status": "clean",
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The user authentication token expiration helper was refactored to validate token expiration against current UTC time, and unit test coverage was updated to pass with exit code 0.",
+          "restart_note": "No further action needed."
+        },
+        "wall_time_s": 69.17453740000019,
+        "load_ms": 11900.9742,
+        "eval_ms": 13637.387,
+        "total_ms": 69172.4106,
+        "error": null
+      }
+    },
+    "gemma3:4b": {
+      "cases": {
+        "pkt-eval-t01": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The code was refactored to include token expiration validation against UTC time, and a new unit test was added to verify expired tokens. All unit tests passed successfully.",
+          "restart_note": "Review the implementation of `get_token_expiry` to ensure it correctly calculates the token expiration time.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_CLEAN",
+              "detail": "Zero false alarms emitted on clean session."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [\n  ],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The code was refactored to include token expiration validation against UTC time, and a new unit test was added to verify expired tokens. All unit tests passed successfully.\",\n  \"restart_note\": \"Review the implementation of `get_token_expiry` to ensure it correctly calculates the token expiration time.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [],
+            "retired_finding_ids": [],
+            "closing_summary": "The code was refactored to include token expiration validation against UTC time, and a new unit test was added to verify expired tokens. All unit tests passed successfully.",
+            "restart_note": "Review the implementation of `get_token_expiry` to ensure it correctly calculates the token expiration time."
+          },
+          "wall_time_s": 24.340989000000263,
+          "load_ms": 9.7517,
+          "eval_ms": 23929.618,
+          "total_ms": 24339.3839,
+          "error": null
+        },
+        "pkt-eval-t02": {
+          "trial_type": "WARM_RUN",
+          "status": "parse_error",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "",
+          "restart_note": "",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "FAILED_REVIEW",
+              "detail": "Review failed with status 'parse_error': Missing required keys in model response: ['closing_summary', 'findings', 'restart_note', 'status']"
+            },
+            "layer2_summary": {
+              "screening_verdict": "FAILED_REVIEW",
+              "notes": [
+                "Review failed with status 'parse_error'"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "FAILED_REVIEW",
+              "notes": [
+                "Review failed with status 'parse_error'"
+              ]
+            }
+          },
+          "raw_content": "{}",
+          "raw_json": {},
+          "wall_time_s": 18.793550600001254,
+          "load_ms": 6.7091,
+          "eval_ms": 379.6,
+          "total_ms": 18791.6273,
+          "error": "Missing required keys in model response: ['closing_summary', 'findings', 'restart_note', 'status']"
+        },
+        "pkt-eval-t03": {
+          "trial_type": "WARM_RUN",
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "needs_judgment",
+              "locator": "README.md:26",
+              "description": "The README documentation still references the old API endpoint.",
+              "evidence": "curl -H 'Accept: json' https://api.example.com/api/v1/items",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The code was updated to use the /api/v2/items endpoint, and the tests passed. However, the README documentation still points to the old /api/v1/items endpoint.",
+          "restart_note": "Update the README.md file to reflect the new API endpoint: `curl -H 'Accept: json' https://api.example.com/api/v2/items`",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_DETECTION",
+              "detail": "Successfully detected unsynchronized documentation in README.md."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [\n    {\n      \"category\": \"needs_judgment\",\n      \"locator\": \"README.md:26\",\n      \"description\": \"The README documentation still references the old API endpoint.\",\n      \"evidence\": \"curl -H 'Accept: json' https://api.example.com/api/v1/items\"\n    }\n  ],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The code was updated to use the /api/v2/items endpoint, and the tests passed. However, the README documentation still points to the old /api/v1/items endpoint.\",\n  \"restart_note\": \"Update the README.md file to reflect the new API endpoint: `curl -H 'Accept: json' https://api.example.com/api/v2/items`\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [
+              {
+                "category": "needs_judgment",
+                "locator": "README.md:26",
+                "description": "The README documentation still references the old API endpoint.",
+                "evidence": "curl -H 'Accept: json' https://api.example.com/api/v1/items"
+              }
+            ],
+            "retired_finding_ids": [],
+            "closing_summary": "The code was updated to use the /api/v2/items endpoint, and the tests passed. However, the README documentation still points to the old /api/v1/items endpoint.",
+            "restart_note": "Update the README.md file to reflect the new API endpoint: `curl -H 'Accept: json' https://api.example.com/api/v2/items`"
+          },
+          "wall_time_s": 69.99280650000037,
+          "load_ms": 8.2941,
+          "eval_ms": 47601.776,
+          "total_ms": 69990.4063,
+          "error": null
+        },
+        "pkt-eval-t04-v2": {
+          "trial_type": "WARM_RUN",
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "unverified",
+              "locator": "lib/widgets/nav_bar.dart:18",
+              "description": "Responsive rendering not verified across viewports.",
+              "evidence": "The unit test only checks the logic, not the rendered layout at different viewport sizes.",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The code modified the NavBar widget to use a LayoutBuilder to adapt to different screen sizes. However, the responsive rendering was only verified by a unit test, not by actual viewport testing.",
+          "restart_note": "Run the flutter test command with the viewport test to verify the responsive layout across mobile and desktop viewports.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_DETECTION",
+              "detail": "Accurately flagged missing viewport check as unverified."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "HIGH_CONTINUITY",
+              "notes": [
+                "Identified concrete, specific next steps for tomorrow."
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"findings_detected\",\n  \"findings\": [\n    {\n      \"category\": \"unverified\",\n      \"locator\": \"lib/widgets/nav_bar.dart:18\",\n      \"description\": \"Responsive rendering not verified across viewports.\",\n      \"evidence\": \"The unit test only checks the logic, not the rendered layout at different viewport sizes.\"\n    }\n  ],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The code modified the NavBar widget to use a LayoutBuilder to adapt to different screen sizes. However, the responsive rendering was only verified by a unit test, not by actual viewport testing.\",\n  \"restart_note\": \"Run the flutter test command with the viewport test to verify the responsive layout across mobile and desktop viewports.\"\n}",
+          "raw_json": {
+            "status": "findings_detected",
+            "findings": [
+              {
+                "category": "unverified",
+                "locator": "lib/widgets/nav_bar.dart:18",
+                "description": "Responsive rendering not verified across viewports.",
+                "evidence": "The unit test only checks the logic, not the rendered layout at different viewport sizes."
+              }
+            ],
+            "retired_finding_ids": [],
+            "closing_summary": "The code modified the NavBar widget to use a LayoutBuilder to adapt to different screen sizes. However, the responsive rendering was only verified by a unit test, not by actual viewport testing.",
+            "restart_note": "Run the flutter test command with the viewport test to verify the responsive layout across mobile and desktop viewports."
+          },
+          "wall_time_s": 62.56556420000015,
+          "load_ms": 6.093,
+          "eval_ms": 41902.259,
+          "total_ms": 62563.3203,
+          "error": null
+        },
+        "pkt-eval-t05": {
+          "trial_type": "WARM_RUN",
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "unverified",
+              "locator": "src/profile.py:11",
+              "description": "No check recorded for modified layout",
+              "evidence": "Added 'bio' and 'website' fields to UserProfile class without associated tests or viewport checks.",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The code added two new profile fields, 'bio' and 'website', to the UserProfile class. The addition of these fields was verified by a pytest test, but no check was recorded for the layout changes.",
+          "restart_note": "Run the pytest tests again to ensure the new fields are correctly serialized and handled.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "FALSE_ALARM_ON_DEFERRED",
+              "detail": "Violated deferral by flagging postponed task as defect."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"findings_detected\",\n  \"findings\": [\n    {\n      \"category\": \"unverified\",\n      \"locator\": \"src/profile.py:11\",\n      \"description\": \"No check recorded for modified layout\",\n      \"evidence\": \"Added 'bio' and 'website' fields to UserProfile class without associated tests or viewport checks.\"\n    }\n  ],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The code added two new profile fields, 'bio' and 'website', to the UserProfile class. The addition of these fields was verified by a pytest test, but no check was recorded for the layout changes.\",\n  \"restart_note\": \"Run the pytest tests again to ensure the new fields are correctly serialized and handled.\"\n}",
+          "raw_json": {
+            "status": "findings_detected",
+            "findings": [
+              {
+                "category": "unverified",
+                "locator": "src/profile.py:11",
+                "description": "No check recorded for modified layout",
+                "evidence": "Added 'bio' and 'website' fields to UserProfile class without associated tests or viewport checks."
+              }
+            ],
+            "retired_finding_ids": [],
+            "closing_summary": "The code added two new profile fields, 'bio' and 'website', to the UserProfile class. The addition of these fields was verified by a pytest test, but no check was recorded for the layout changes.",
+            "restart_note": "Run the pytest tests again to ensure the new fields are correctly serialized and handled."
+          },
+          "wall_time_s": 60.326816799999506,
+          "load_ms": 13.223,
+          "eval_ms": 41688.402,
+          "total_ms": 60325.0874,
+          "error": null
+        },
+        "pkt-eval-t06a": {
+          "trial_type": "WARM_RUN",
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "The viewport rendering test passed, verifying responsive layout across mobile and desktop breakpoints. The prior unverified finding regarding the layout check has been retired due to the successful test execution.",
+          "restart_note": "Continue to monitor test results and consider adding more detailed assertions within the viewport test to further validate the layout.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_RECONCILIATION",
+              "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "HIGH_CONTINUITY",
+              "notes": [
+                "Identified concrete, specific next steps for tomorrow."
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [\n    {\n      \"category\": \"unverified\",\n      \"locator\": \"lib/widgets/nav_bar.dart:18\",\n      \"description\": \"No check recorded for modified layout.\",\n      \"evidence\": \"Prior finding: No check recorded for modified layout.\"\n    }\n  ],\n  \"retired_finding_ids\": [\n    \"f-prior-nav-01\"\n  ],\n  \"closing_summary\": \"The viewport rendering test passed, verifying responsive layout across mobile and desktop breakpoints. The prior unverified finding regarding the layout check has been retired due to the successful test execution.\",\n  \"restart_note\": \"Continue to monitor test results and consider adding more detailed assertions within the viewport test to further validate the layout.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [
+              {
+                "category": "unverified",
+                "locator": "lib/widgets/nav_bar.dart:18",
+                "description": "No check recorded for modified layout.",
+                "evidence": "Prior finding: No check recorded for modified layout."
+              }
+            ],
+            "retired_finding_ids": [
+              "f-prior-nav-01"
+            ],
+            "closing_summary": "The viewport rendering test passed, verifying responsive layout across mobile and desktop breakpoints. The prior unverified finding regarding the layout check has been retired due to the successful test execution.",
+            "restart_note": "Continue to monitor test results and consider adding more detailed assertions within the viewport test to further validate the layout."
+          },
+          "wall_time_s": 66.24527019999914,
+          "load_ms": 7.9467,
+          "eval_ms": 43935.037,
+          "total_ms": 66243.2531,
+          "error": null
+        },
+        "pkt-eval-t06b": {
+          "trial_type": "WARM_RUN",
+          "status": "findings_detected",
+          "findings_count": 2,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "unverified",
+              "locator": "lib/utils/string_helper.dart:6",
+              "description": "No check recorded for modified layout.",
+              "evidence": "String trimName function updated to include toLowerCase()",
+              "status": "open",
+              "validation_error": null
+            },
+            {
+              "finding_id": "m-retire-err-2",
+              "category": "needs_judgment",
+              "locator": "lib/widgets/nav_bar.dart:18",
+              "description": "Unsupported retirement ID 'f-prior-nav-01': no relevant passing receipt found verifying this finding.",
+              "evidence": "Proposed retirement ID: 'f-prior-nav-01'",
+              "status": "open",
+              "validation_error": "No relevant passing receipt for 'f-prior-nav-01'"
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The string helper function was updated to include toLowerCase() and a unit test passed. No check was recorded for the layout changes.",
+          "restart_note": "Run viewport tests and widget tests for the updated string helper function to ensure responsiveness and layout integrity.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "CORRECT_NON_RETIREMENT",
+              "detail": "Correctly refused to retire f-prior-nav-01 due to insufficient evidence."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "HIGH_CONTINUITY",
+              "notes": [
+                "Identified concrete, specific next steps for tomorrow."
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"findings_detected\",\n  \"findings\": [\n    {\n      \"category\": \"unverified\",\n      \"locator\": \"lib/utils/string_helper.dart:6\",\n      \"description\": \"No check recorded for modified layout.\",\n      \"evidence\": \"String trimName function updated to include toLowerCase()\"\n    }\n  ],\n  \"retired_finding_ids\": [\n    \"f-prior-nav-01\"\n  ],\n  \"closing_summary\": \"The string helper function was updated to include toLowerCase() and a unit test passed. No check was recorded for the layout changes.\",\n  \"restart_note\": \"Run viewport tests and widget tests for the updated string helper function to ensure responsiveness and layout integrity.\"\n}",
+          "raw_json": {
+            "status": "findings_detected",
+            "findings": [
+              {
+                "category": "unverified",
+                "locator": "lib/utils/string_helper.dart:6",
+                "description": "No check recorded for modified layout.",
+                "evidence": "String trimName function updated to include toLowerCase()"
+              }
+            ],
+            "retired_finding_ids": [
+              "f-prior-nav-01"
+            ],
+            "closing_summary": "The string helper function was updated to include toLowerCase() and a unit test passed. No check was recorded for the layout changes.",
+            "restart_note": "Run viewport tests and widget tests for the updated string helper function to ensure responsiveness and layout integrity."
+          },
+          "wall_time_s": 60.841028100001495,
+          "load_ms": 12.5263,
+          "eval_ms": 40779.027,
+          "total_ms": 60838.0702,
+          "error": null
+        },
+        "pkt-eval-t06": {
+          "trial_type": "WARM_RUN",
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "unverified",
+              "locator": "test/nav_bar_viewport_test.dart:8",
+              "description": "No check recorded for modified layout.",
+              "evidence": "No check recorded for modified layout.",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "The code added a basic viewport test for the nav bar widget. The test passed, verifying the responsive layout across mobile and desktop breakpoints.",
+          "restart_note": "Run additional tests to ensure the nav bar layout is fully responsive across a wider range of breakpoints and device types.",
+          "layer_evaluation": {
+            "screening_mode": "AUTOMATED_SCREENING",
+            "semantic_review_status": "NOT_REVIEWED",
+            "layer1_findings": {
+              "screening_verdict": "FAILED_RECONCILIATION",
+              "detail": "Failed to retire f-prior-nav-01 (retired: ['f-prior-nav-01'], findings: 1)."
+            },
+            "layer2_summary": {
+              "screening_verdict": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "screening_verdict": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [\n    {\n      \"category\": \"unverified\",\n      \"locator\": \"test/nav_bar_viewport_test.dart:8\",\n      \"description\": \"No check recorded for modified layout.\",\n      \"evidence\": \"No check recorded for modified layout.\"\n    }\n  ],\n  \"retired_finding_ids\": [\n    \"f-prior-nav-01\"\n  ],\n  \"closing_summary\": \"The code added a basic viewport test for the nav bar widget. The test passed, verifying the responsive layout across mobile and desktop breakpoints.\",\n  \"restart_note\": \"Run additional tests to ensure the nav bar layout is fully responsive across a wider range of breakpoints and device types.\"\n}",
+          "raw_json": {
+            "status": "clean",
+            "findings": [
+              {
+                "category": "unverified",
+                "locator": "test/nav_bar_viewport_test.dart:8",
+                "description": "No check recorded for modified layout.",
+                "evidence": "No check recorded for modified layout."
+              }
+            ],
+            "retired_finding_ids": [
+              "f-prior-nav-01"
+            ],
+            "closing_summary": "The code added a basic viewport test for the nav bar widget. The test passed, verifying the responsive layout across mobile and desktop breakpoints.",
+            "restart_note": "Run additional tests to ensure the nav bar layout is fully responsive across a wider range of breakpoints and device types."
+          },
+          "wall_time_s": 62.400029899999936,
+          "load_ms": 7.101,
+          "eval_ms": 41030.838,
+          "total_ms": 62397.884,
+          "error": null
+        }
+      },
+      "cold_probe": {
+        "trial_type": "COLD_PROBE",
+        "packet_id": "pkt-eval-t01",
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "retired_finding_ids": [],
+        "closing_summary": "The code was refactored to include token expiration validation against UTC time, and a new unit test was added to verify expired tokens. All unit tests passed successfully.",
+        "restart_note": "Review the implementation of `get_token_expiry` to ensure it correctly retrieves and formats the token expiry timestamp.",
+        "layer_evaluation": {
+          "screening_mode": "AUTOMATED_SCREENING",
+          "semantic_review_status": "NOT_REVIEWED",
+          "layer1_findings": {
+            "screening_verdict": "CORRECT_CLEAN",
+            "detail": "Zero false alarms emitted on clean session."
+          },
+          "layer2_summary": {
+            "screening_verdict": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "screening_verdict": "ACTIONABLE_CONTINUITY",
+            "notes": [
+              "Actionable next steps provided"
+            ]
+          }
+        },
+        "raw_content": "{\n  \"status\": \"clean\",\n  \"findings\": [\n  ],\n  \"retired_finding_ids\": [],\n  \"closing_summary\": \"The code was refactored to include token expiration validation against UTC time, and a new unit test was added to verify expired tokens. All unit tests passed successfully.\",\n  \"restart_note\": \"Review the implementation of `get_token_expiry` to ensure it correctly retrieves and formats the token expiry timestamp.\"\n}",
+        "raw_json": {
+          "status": "clean",
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The code was refactored to include token expiration validation against UTC time, and a new unit test was added to verify expired tokens. All unit tests passed successfully.",
+          "restart_note": "Review the implementation of `get_token_expiry` to ensure it correctly retrieves and formats the token expiry timestamp."
+        },
+        "wall_time_s": 98.78786650000075,
+        "load_ms": 20101.0669,
+        "eval_ms": 24826.303,
+        "total_ms": 98785.3165,
+        "error": null
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "packet_id": "pkt-eval-t02",
+  "timestamp_utc": "2026-10-21T02:00:00Z",
+  "repo_name": "sample-web-router",
+  "session_intention": "Update post-login flow to redirect authenticated users to /dashboard",
+  "acceptance_criteria": [
+    "1. Authenticated users are redirected to /dashboard upon successful verification",
+    "2. Route redirect tests pass"
+  ],
+  "changed_files": [
+    {
+      "path": "src/views.py",
+      "status": "modified",
+      "diff": "@@ -40,5 +40,5 @@ def post_login(request):\n     if user.is_authenticated:\n-        return redirect('/welcome')\n+        return redirect('/home')\n     return render('login.html')\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t02-01",
+      "command": "pytest -q tests/test_views.py",
+      "exit_code": 0,
+      "output_summary": "1 passed in 0.03s (mocked HTTP 302 response checked)",
+      "timestamp_utc": "2026-10-21T02:05:00Z"
+    }
+  ],
+  "prior_findings": [],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

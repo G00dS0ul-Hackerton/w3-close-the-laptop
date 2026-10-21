@@ -1,0 +1,678 @@
+{
+  "benchmark_time_utc": "2026-10-21T02:21:30.721378+00:00",
+  "ollama_version": "0.40.6",
+  "baseline": {
+    "pkt-eval-t01": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 2 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "All baseline checklist checks verified.",
+      "layer_evaluation": {
+        "layer1_findings": {
+          "status": "CORRECT_CLEAN",
+          "detail": "Zero false alarms emitted on clean session."
+        },
+        "layer2_summary": {
+          "status": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "status": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.047500001528533176
+    },
+    "pkt-eval-t02": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "All baseline checklist checks verified.",
+      "layer_evaluation": {
+        "layer1_findings": {
+          "status": "MISSED_GAP",
+          "detail": "Missed semantic route redirect contradiction."
+        },
+        "layer2_summary": {
+          "status": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "status": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.012900000001536682
+    },
+    "pkt-eval-t03": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 2 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "All baseline checklist checks verified.",
+      "layer_evaluation": {
+        "layer1_findings": {
+          "status": "MISSED_GAP",
+          "detail": "Missed stale README route (assumed completion from touched file)."
+        },
+        "layer2_summary": {
+          "status": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "status": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.030899998819222674
+    },
+    "pkt-eval-t04": {
+      "status": "findings_detected",
+      "findings_count": 1,
+      "findings": [
+        {
+          "finding_id": "base-f-1",
+          "category": "unverified",
+          "locator": "lib/widgets/nav_bar.dart:1",
+          "description": "No check recorded for modified layout.",
+          "evidence": "Layout files modified without an attached viewport, widget, or screenshot test receipt.",
+          "status": "open",
+          "validation_error": null
+        }
+      ],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 1 unverified gaps.",
+      "restart_note": "Continue by addressing open unverified checks.",
+      "layer_evaluation": {
+        "layer1_findings": {
+          "status": "CORRECT_DETECTION",
+          "detail": "Accurately flagged missing viewport check as unverified."
+        },
+        "layer2_summary": {
+          "status": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "status": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.05459999920276459
+    },
+    "pkt-eval-t05": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "All baseline checklist checks verified.",
+      "layer_evaluation": {
+        "layer1_findings": {
+          "status": "CORRECT_DEFERRAL_HONORED",
+          "detail": "Honored explicit deferral; zero false alarms on postponed migration."
+        },
+        "layer2_summary": {
+          "status": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "status": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.009800000043469481
+    },
+    "pkt-eval-t06": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [
+        "f-prior-nav-01"
+      ],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "All baseline checklist checks verified.",
+      "layer_evaluation": {
+        "layer1_findings": {
+          "status": "CORRECT_RECONCILIATION",
+          "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+        },
+        "layer2_summary": {
+          "status": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "status": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "total_ms": 0.024100001610349864
+    }
+  },
+  "models": {
+    "qwen2.5-coder:3b": {
+      "cases": {
+        "pkt-eval-t01": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The user authentication token expiration helper has been refactored to validate token expiration against current UTC time, and unit tests have been updated to cover this functionality.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "CORRECT_CLEAN",
+              "detail": "Zero false alarms emitted on clean session."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 51.35093860000052,
+          "load_ms": 11385.7002,
+          "eval_ms": 11123.875,
+          "total_ms": 51349.0429,
+          "error": null
+        },
+        "pkt-eval-t02": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The post-login flow has been updated to redirect authenticated users to /dashboard. Route redirect tests have passed.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "MISSED_GAP",
+              "detail": "Missed semantic route redirect contradiction."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "DISMISSIVE_NOTE",
+              "notes": [
+                "Dismissed next steps with 'no further action needed' when follow-up was required."
+              ]
+            }
+          },
+          "wall_time_s": 16.6812160999998,
+          "load_ms": 6.1241,
+          "eval_ms": 9256.746,
+          "total_ms": 16679.3726,
+          "error": null
+        },
+        "pkt-eval-t03": {
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "needs_judgment",
+              "locator": "README.md:25",
+              "description": "README.md still points to old version of endpoint",
+              "evidence": "curl https://api.example.com/api/v1/items",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The route endpoint was upgraded to /api/v2/items, but the README.md still references the old endpoint.",
+          "restart_note": "Review and update the README.md to reflect the new endpoint.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "CORRECT_DETECTION",
+              "detail": "Successfully detected unsynchronized documentation in README.md."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 30.377505600001314,
+          "load_ms": 6.4706,
+          "eval_ms": 19605.18,
+          "total_ms": 30374.9516,
+          "error": null
+        },
+        "pkt-eval-t04": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The nav bar layout has been restructured to use a LayoutBuilder for responsive sizing. The verification checks passed.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "MISSED_GAP",
+              "detail": "Failed to detect missing viewport check receipt."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "DISMISSIVE_NOTE",
+              "notes": [
+                "Dismissed next steps with 'no further action needed' when follow-up was required."
+              ]
+            }
+          },
+          "wall_time_s": 17.344896799999333,
+          "load_ms": 34.1521,
+          "eval_ms": 9204.278,
+          "total_ms": 17343.5172,
+          "error": null
+        },
+        "pkt-eval-t05": {
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "deferred",
+              "locator": "src/profile.py:10",
+              "description": "Database migration intentionally deferred to tomorrow's session",
+              "evidence": "Explicit deferral in session_intention",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "Profile editing endpoint implemented with deferred database migration.",
+          "restart_note": "Next check to run: pytest -q tests/test_profile.py",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "FALSE_ALARM_ON_DEFERRED",
+              "detail": "Violated deferral by flagging postponed task as defect."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 23.723187199999302,
+          "load_ms": 5.1299,
+          "eval_ms": 16564.425,
+          "total_ms": 23721.3624,
+          "error": null
+        },
+        "pkt-eval-t06": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "Responsive viewport test added for nav bar, all tests passed.",
+          "restart_note": "No further action needed.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "CORRECT_RECONCILIATION",
+              "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 17.786230699999578,
+          "load_ms": 6.9944,
+          "eval_ms": 8913.974,
+          "total_ms": 17784.0769,
+          "error": null
+        }
+      },
+      "cold_probe": {
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "retired_finding_ids": [],
+        "closing_summary": "The user authentication token expiration helper has been refactored to validate token expiration against current UTC time, and unit tests have been updated to cover this functionality.",
+        "restart_note": "No further action needed.",
+        "layer_evaluation": {
+          "layer1_findings": {
+            "status": "CORRECT_CLEAN",
+            "detail": "Zero false alarms emitted on clean session."
+          },
+          "layer2_summary": {
+            "status": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "status": "ACTIONABLE_CONTINUITY",
+            "notes": [
+              "Actionable next steps provided"
+            ]
+          }
+        },
+        "wall_time_s": 51.35093860000052,
+        "load_ms": 11385.7002,
+        "eval_ms": 11123.875,
+        "total_ms": 51349.0429,
+        "error": null
+      }
+    },
+    "gemma3:4b": {
+      "cases": {
+        "pkt-eval-t01": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The code was refactored to include token expiry validation against UTC time and a new unit test was added to verify expired tokens. All unit tests passed.",
+          "restart_note": "Review the implementation of `get_token_expiry` to ensure it correctly calculates the token expiry time.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "CORRECT_CLEAN",
+              "detail": "Zero false alarms emitted on clean session."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 85.36734629999955,
+          "load_ms": 20328.7882,
+          "eval_ms": 21842.453,
+          "total_ms": 85366.342,
+          "error": null
+        },
+        "pkt-eval-t02": {
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "evidence_mismatch",
+              "locator": "src/views.py:40",
+              "description": "The redirect URL has been changed from /welcome to /home.",
+              "evidence": "The code was modified to `return redirect('/home')` instead of `return redirect('/welcome')`.",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The code was updated to redirect authenticated users to /home instead of /welcome. The tests passed successfully, confirming the redirect functionality.",
+          "restart_note": "Verify that the documentation (README.md) reflects the new redirect destination of /home.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "CORRECT_DETECTION",
+              "detail": "Successfully caught route mismatch to /home vs /dashboard."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 51.16129530000035,
+          "load_ms": 11.9892,
+          "eval_ms": 34909.111,
+          "total_ms": 51159.4092,
+          "error": null
+        },
+        "pkt-eval-t03": {
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "needs_judgment",
+              "locator": "README.md:26",
+              "description": "The README documentation still references the old API endpoint (/api/v1/items) despite the code being updated to /api/v2/items.",
+              "evidence": "curl -H 'Accept: json' https://api.example.com/api/v1/items",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The code was updated to use the /api/v2/items endpoint, but the README documentation has not been updated to reflect this change. The tests passed successfully.",
+          "restart_note": "Update the README.md file to reflect the new API endpoint URL.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "CORRECT_DETECTION",
+              "detail": "Successfully detected unsynchronized documentation in README.md."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 55.73299959999895,
+          "load_ms": 4.9547,
+          "eval_ms": 36697.068,
+          "total_ms": 55731.3741,
+          "error": null
+        },
+        "pkt-eval-t04": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "",
+          "restart_note": "",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "MISSED_GAP",
+              "detail": "Failed to detect missing viewport check receipt."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 14.653149199999461,
+          "load_ms": 5.3854,
+          "eval_ms": 202.497,
+          "total_ms": 14651.9666,
+          "error": null
+        },
+        "pkt-eval-t05": {
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "unverified",
+              "locator": "src/profile.py:6",
+              "description": "No check recorded for modified layout",
+              "evidence": "Added 'bio' and 'website' fields to UserProfile class without associated tests or viewport checks.",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The code added two new fields, 'bio' and 'website', to the UserProfile class. However, no check receipts were recorded for this layout modification.",
+          "restart_note": "Run pytest with the new fields included to verify functionality and responsiveness.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "FALSE_ALARM_ON_DEFERRED",
+              "detail": "Violated deferral by flagging postponed task as defect."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 45.45134490000055,
+          "load_ms": 5.9438,
+          "eval_ms": 31659.814,
+          "total_ms": 45449.9657,
+          "error": null
+        },
+        "pkt-eval-t06": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "The new test was added to `test/nav_bar_viewport_test.dart` and successfully passed, verifying the responsive layout of the nav bar across different breakpoints. The previous unverified finding regarding the layout modification has been resolved by the addition of the viewport test.",
+          "restart_note": "Continue to explore other responsive UI tests to ensure comprehensive coverage.",
+          "layer_evaluation": {
+            "layer1_findings": {
+              "status": "CORRECT_RECONCILIATION",
+              "detail": "Retired prior finding f-prior-nav-01 upon receiving passing viewport receipt."
+            },
+            "layer2_summary": {
+              "status": "FACTUAL_ACCOUNTING",
+              "notes": [
+                "Truthful diff and check accounting"
+              ]
+            },
+            "layer3_restart": {
+              "status": "ACTIONABLE_CONTINUITY",
+              "notes": [
+                "Actionable next steps provided"
+              ]
+            }
+          },
+          "wall_time_s": 45.28586229999928,
+          "load_ms": 7.2598,
+          "eval_ms": 27002.48,
+          "total_ms": 45284.2783,
+          "error": null
+        }
+      },
+      "cold_probe": {
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "retired_finding_ids": [],
+        "closing_summary": "The code was refactored to include token expiry validation against UTC time and a new unit test was added to verify expired tokens. All unit tests passed.",
+        "restart_note": "Review the implementation of `get_token_expiry` to ensure it correctly calculates the token expiry time.",
+        "layer_evaluation": {
+          "layer1_findings": {
+            "status": "CORRECT_CLEAN",
+            "detail": "Zero false alarms emitted on clean session."
+          },
+          "layer2_summary": {
+            "status": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "status": "ACTIONABLE_CONTINUITY",
+            "notes": [
+              "Actionable next steps provided"
+            ]
+          }
+        },
+        "wall_time_s": 85.36734629999955,
+        "load_ms": 20328.7882,
+        "eval_ms": 21842.453,
+        "total_ms": 85366.342,
+        "error": null
+      }
+    }
+  }
+}

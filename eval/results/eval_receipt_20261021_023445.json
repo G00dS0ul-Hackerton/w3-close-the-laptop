@@ -1,0 +1,276 @@
+{
+  "benchmark_time_utc": "2026-10-21T01:26:34.952382+00:00",
+  "ollama_version": "0.40.6",
+  "baseline": {
+    "pkt-eval-t01": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "total_ms": 0.04840000019612489
+    },
+    "pkt-eval-t02": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "total_ms": 0.02119999953720253
+    },
+    "pkt-eval-t03": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "total_ms": 0.030199999855540227
+    },
+    "pkt-eval-t04": {
+      "status": "findings_detected",
+      "findings_count": 1,
+      "findings": [
+        {
+          "finding_id": "base-f-1",
+          "category": "unverified",
+          "locator": "lib/widgets/nav_bar.dart:1",
+          "description": "No check recorded for modified layout.",
+          "evidence": "Layout files modified without an attached viewport, widget, or screenshot test receipt.",
+          "status": "open",
+          "validation_error": null
+        }
+      ],
+      "retired_finding_ids": [],
+      "total_ms": 0.05339999916031957
+    },
+    "pkt-eval-t05": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [],
+      "total_ms": 0.018700000509852543
+    },
+    "pkt-eval-t06": {
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "retired_finding_ids": [
+        "f-prior-nav-01"
+      ],
+      "total_ms": 0.016199999663513154
+    }
+  },
+  "models": {
+    "qwen2.5-coder:3b": {
+      "cases": {
+        "pkt-eval-t01": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The refactored `validate_token` function now checks if the token's expiry timestamp is greater than the current UTC time, and the unit tests have passed.",
+          "restart_note": "No changes were made to the acceptance criteria or check receipts, so the session can proceed as planned.",
+          "wall_time_s": 59.20671740000034,
+          "load_ms": 12416.356,
+          "eval_ms": 15757.94,
+          "total_ms": 59205.4437,
+          "error": null
+        },
+        "pkt-eval-t02": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The post-login flow has been updated to redirect authenticated users to /dashboard, and the route redirect tests have passed.",
+          "restart_note": "No further action needed. Continue with the next task.",
+          "wall_time_s": 17.63520299999982,
+          "load_ms": 6.0959,
+          "eval_ms": 10564.039,
+          "total_ms": 17633.9221,
+          "error": null
+        },
+        "pkt-eval-t03": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The API route has been successfully upgraded to /api/v2/items, and the documentation in README.md has been updated to reflect this change.",
+          "restart_note": "No further actions are needed for today. Continue with any other tasks or review the updated code for any potential issues.",
+          "wall_time_s": 26.13727409999956,
+          "load_ms": 6.7444,
+          "eval_ms": 16637.865,
+          "total_ms": 26135.308,
+          "error": null
+        },
+        "pkt-eval-t04": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The nav bar layout has been restructured for responsive sizing, and the verification checks have passed.",
+          "restart_note": "No further action needed. Continue with the next task.",
+          "wall_time_s": 18.488693799999965,
+          "load_ms": 6.1991,
+          "eval_ms": 9800.416,
+          "total_ms": 18487.3669,
+          "error": null
+        },
+        "pkt-eval-t05": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "Profile editing endpoint implemented with serialization fields. Database migration intentionally deferred to next session.",
+          "restart_note": "Continue with database migration and testing.",
+          "wall_time_s": 17.628767600000174,
+          "load_ms": 6.2756,
+          "eval_ms": 9004.954,
+          "total_ms": 17627.2307,
+          "error": null
+        },
+        "pkt-eval-t06": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "Responsive viewport test added for nav bar layout, all tests passed.",
+          "restart_note": "No further actions needed. Continue with the next task.",
+          "wall_time_s": 19.722065800000564,
+          "load_ms": 5.9197,
+          "eval_ms": 10590.593,
+          "total_ms": 19721.2412,
+          "error": null
+        }
+      },
+      "cold_probe": {
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "retired_finding_ids": [],
+        "closing_summary": "The refactored `validate_token` function now checks if the token's expiry timestamp is greater than the current UTC time, and the unit tests have passed.",
+        "restart_note": "No changes were made to the acceptance criteria or check receipts, so the session can proceed as planned.",
+        "wall_time_s": 59.20671740000034,
+        "load_ms": 12416.356,
+        "eval_ms": 15757.94,
+        "total_ms": 59205.4437,
+        "error": null
+      }
+    },
+    "gemma3:4b": {
+      "cases": {
+        "pkt-eval-t01": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The token expiration validation logic was refactored, and unit tests were added to cover empty tokens and expired tokens. All tests passed successfully.",
+          "restart_note": "Continue to explore edge cases for token expiration, particularly around timezone handling and potential future changes to the token format.",
+          "wall_time_s": 74.24640709999949,
+          "load_ms": 20319.0979,
+          "eval_ms": 22388.079,
+          "total_ms": 74244.3151,
+          "error": null
+        },
+        "pkt-eval-t02": {
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "evidence_mismatch",
+              "locator": "src/views.py:40",
+              "description": "The redirect URL is currently set to '/home' instead of '/dashboard' as per the acceptance criteria.",
+              "evidence": "The code redirects to '/home' instead of '/dashboard'.",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The post-login redirect was updated to '/home', but the tests passed as expected. This change aligns with the current implementation.",
+          "restart_note": "Confirm the dashboard route is correctly configured and accessible.",
+          "wall_time_s": 49.11175370000001,
+          "load_ms": 8.4346,
+          "eval_ms": 30570.143,
+          "total_ms": 49109.952,
+          "error": null
+        },
+        "pkt-eval-t03": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The API route was successfully upgraded to /api/v2/items and the corresponding reference in the README.md file was updated. All tests passed.",
+          "restart_note": "Continue monitoring the API for any potential issues and consider updating any other documentation that references the new endpoint.",
+          "wall_time_s": 44.20512950000011,
+          "load_ms": 6.7761,
+          "eval_ms": 22116.623,
+          "total_ms": 44204.0341,
+          "error": null
+        },
+        "pkt-eval-t04": {
+          "status": "findings_detected",
+          "findings_count": 1,
+          "findings": [
+            {
+              "finding_id": "m-1",
+              "category": "evidence_mismatch",
+              "locator": "lib/widgets/nav_bar.dart:18",
+              "description": "The original `build` method returned a `Row` with `Logo()` and `Links()`, but now uses a `LayoutBuilder` to conditionally render different navigation layouts based on viewport width.",
+              "evidence": "Original code: `Widget build(BuildContext context) => Row(children: [Logo(), Links()]);` Current code: `Widget build(BuildContext context) => LayoutBuilder(builder: (context, constraints) { return constraints.maxWidth < 600 ? MobileNav() : DesktopNav(); });`",
+              "status": "open",
+              "validation_error": null
+            }
+          ],
+          "retired_finding_ids": [],
+          "closing_summary": "The navigation bar layout has been restructured to accommodate both mobile and desktop viewports using a `LayoutBuilder`. Unit tests confirm the logic is correct, but viewport rendering hasn't been verified.",
+          "restart_note": "Implement viewport tests to confirm the responsive navigation bar layout works correctly across different screen sizes.",
+          "wall_time_s": 81.66216290000011,
+          "load_ms": 6.4035,
+          "eval_ms": 62070.866,
+          "total_ms": 81660.6473,
+          "error": null
+        },
+        "pkt-eval-t05": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [],
+          "closing_summary": "The user profile serialization fields were added to the profile.py file, and the pytest tests passed. The database migration has been deferred as intended.",
+          "restart_note": "Continue with the database migration as planned for tomorrow's session.",
+          "wall_time_s": 37.11264979999942,
+          "load_ms": 6.3686,
+          "eval_ms": 18428.335,
+          "total_ms": 37109.6893,
+          "error": null
+        },
+        "pkt-eval-t06": {
+          "status": "clean",
+          "findings_count": 0,
+          "findings": [],
+          "retired_finding_ids": [
+            "f-prior-nav-01"
+          ],
+          "closing_summary": "The developer added a viewport rendering test for the nav bar and confirmed it passes across mobile and desktop breakpoints. The prior unverified finding regarding the layout has been resolved with the new test.",
+          "restart_note": "Continue to expand the test coverage to include more specific responsive scenarios within the nav bar.",
+          "wall_time_s": 44.49266589999934,
+          "load_ms": 9.6521,
+          "eval_ms": 20869.835,
+          "total_ms": 44490.4255,
+          "error": null
+        }
+      },
+      "cold_probe": {
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "retired_finding_ids": [],
+        "closing_summary": "The token expiration validation logic was refactored, and unit tests were added to cover empty tokens and expired tokens. All tests passed successfully.",
+        "restart_note": "Continue to explore edge cases for token expiration, particularly around timezone handling and potential future changes to the token format.",
+        "wall_time_s": 74.24640709999949,
+        "load_ms": 20319.0979,
+        "eval_ms": 22388.079,
+        "total_ms": 74244.3151,
+        "error": null
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "packet_id": "pkt-eval-t06b",
+  "timestamp_utc": "2026-10-21T02:00:00Z",
+  "repo_name": "sample-flutter-desktop",
+  "session_intention": "Refactor helper logic while leaving layout finding open",
+  "acceptance_criteria": [
+    "1. Update string helper function",
+    "2. Unit test passes"
+  ],
+  "changed_files": [
+    {
+      "path": "lib/utils/string_helper.dart",
+      "status": "modified",
+      "diff": "@@ -5,3 +5,3 @@\n-String trimName(String s) => s.trim();\n+String trimName(String s) => s.trim().toLowerCase();\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t06b-01",
+      "command": "flutter test test/string_helper_test.dart",
+      "exit_code": 0,
+      "output_summary": "1 unit test passed in 0.2s (string helper only, no layout/viewport checks)",
+      "timestamp_utc": "2026-10-21T02:05:00Z"
+    }
+  ],
+  "prior_findings": [
+    {
+      "finding_id": "f-prior-nav-01",
+      "category": "unverified",
+      "locator": "lib/widgets/nav_bar.dart:18",
+      "description": "No check recorded for modified layout.",
+      "evidence": "Layout modified without viewport check receipt",
+      "status": "open"
+    }
+  ],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

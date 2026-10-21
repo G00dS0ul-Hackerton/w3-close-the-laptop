@@ -1,0 +1,35 @@
+{
+  "packet_id": "pkt-eval-t03",
+  "timestamp_utc": "2026-10-21T02:00:00Z",
+  "repo_name": "sample-api-server",
+  "session_intention": "Upgrade items API route from /api/v1/items to /api/v2/items and update documentation in README",
+  "acceptance_criteria": [
+    "1. Upgrade route endpoint to /api/v2/items",
+    "2. Synchronize endpoint references in README.md"
+  ],
+  "changed_files": [
+    {
+      "path": "src/routes.py",
+      "status": "modified",
+      "diff": "@@ -12,4 +12,4 @@\n-@router.get('/api/v1/items')\n+@router.get('/api/v2/items')\n def get_items():\n     return {'version': 2, 'items': []}\n"
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "diff": "@@ -25,4 +25,4 @@\n ## API Endpoints\n To fetch current items, make a GET request:\n-curl https://api.example.com/api/v1/items\n+curl -H 'Accept: json' https://api.example.com/api/v1/items\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t03-01",
+      "command": "pytest -q tests/test_routes.py",
+      "exit_code": 0,
+      "output_summary": "1 passed in 0.04s",
+      "timestamp_utc": "2026-10-21T02:05:00Z"
+    }
+  ],
+  "prior_findings": [],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}
