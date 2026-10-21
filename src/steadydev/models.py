@@ -1,9 +1,24 @@
 """Core data models and schemas for SteadyDev review packets and results."""
 
+from __future__ import annotations
+
+import hashlib
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+
+def compute_finding_id(
+    category: str | FindingCategory, locator: str, anchor: str = ""
+) -> str:
+    """Generate a deterministic, content-addressed finding identifier."""
+    cat_val = category.value if hasattr(category, "value") else str(category)
+    norm_loc = locator.strip().replace("\\", "/").lower()
+    norm_anchor = anchor.strip().lower()[:40]
+    raw = f"{cat_val}:{norm_loc}:{norm_anchor}".encode()
+    digest = hashlib.sha256(raw).hexdigest()[:10]
+    return f"fnd-{digest}"
 
 
 class FindingCategory(str, Enum):
@@ -78,6 +93,18 @@ class Finding(BaseModel):
     validation_error: str | None = Field(
         default=None, description="Locator validation failure reason if any"
     )
+    is_stale: bool = Field(
+        default=False, description="True if cited file no longer exists on disk"
+    )
+    stale_reason: str | None = Field(
+        default=None, description="Reason if finding is marked stale"
+    )
+    user_reason: str | None = Field(
+        default=None, description="User justification for lifecycle decision"
+    )
+    retired_by_receipt_id: str | None = Field(
+        default=None, description="Receipt ID that retired this finding"
+    )
 
     @field_validator("category", mode="before")
     @classmethod
@@ -131,6 +158,12 @@ class ReviewPacket(BaseModel):
     )
     omitted_files: list[str] = Field(
         default_factory=list, description="Files excluded due to file count limits"
+    )
+    snapshot_hash: str | None = Field(
+        default=None, description="Deterministic composite working-tree snapshot hash"
+    )
+    git_head_sha: str | None = Field(
+        default=None, description="Current commit hash of Git HEAD"
     )
 
 
