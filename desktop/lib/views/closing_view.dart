@@ -7,17 +7,23 @@ import '../theme/tokens.dart';
 
 class ClosingView extends StatefulWidget {
   final List<FindingItem> findings;
+  final List<SessionCheckReceipt> receipts;
+  final int changedFileCount;
   final String initialRestartNote;
   final bool isEnded;
   final VoidCallback onBackToSession;
-  final VoidCallback onFinalizeSession;
+  final ValueChanged<String>? onRestartNoteChanged;
+  final void Function(String noteText) onFinalizeSession;
 
   const ClosingView({
     super.key,
     required this.findings,
+    this.receipts = const [],
+    this.changedFileCount = 0,
     required this.initialRestartNote,
     this.isEnded = false,
     required this.onBackToSession,
+    this.onRestartNoteChanged,
     required this.onFinalizeSession,
   });
 
@@ -27,17 +33,31 @@ class ClosingView extends StatefulWidget {
 
 class _ClosingViewState extends State<ClosingView> {
   late final TextEditingController _noteController;
-  bool _noteEdited = false;
   bool _copied = false;
 
   @override
   void initState() {
     super.initState();
     _noteController = TextEditingController(text: widget.initialRestartNote);
+    _noteController.addListener(_handleNoteChanged);
+  }
+
+  void _handleNoteChanged() {
+    widget.onRestartNoteChanged?.call(_noteController.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant ClosingView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialRestartNote != widget.initialRestartNote &&
+        _noteController.text != widget.initialRestartNote) {
+      _noteController.text = widget.initialRestartNote;
+    }
   }
 
   @override
   void dispose() {
+    _noteController.removeListener(_handleNoteChanged);
     _noteController.dispose();
     super.dispose();
   }
@@ -149,7 +169,9 @@ class _ClosingViewState extends State<ClosingView> {
                           widget.isEnded ? 'Session closed' : 'Leave it here',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        onPressed: widget.isEnded ? null : widget.onFinalizeSession,
+                        onPressed: widget.isEnded
+                            ? null
+                            : () => widget.onFinalizeSession(_noteController.text),
                       ),
                     ],
                   ),
@@ -191,7 +213,9 @@ class _ClosingViewState extends State<ClosingView> {
               ),
               const SizedBox(height: 14),
               Text(
-                '• Auth checks passing and verified in local receipts.\n• Tracked changes safely staged in working snapshot.',
+                widget.receipts.isNotEmpty
+                    ? '• ${widget.receipts.where((r) => r.exitCode == 0).length} check(s) passing in local verification receipts.\n• ${widget.changedFileCount > 0 ? widget.changedFileCount : 'Tracked'} file(s) safely bound to working snapshot.'
+                    : '• Tracked changes safely bound to working snapshot.\n• No passing check receipts recorded for this session.',
                 style: TextStyle(fontSize: 14, color: tokens.secondaryText, height: 1.5),
               ),
               const SizedBox(height: 12),
@@ -344,7 +368,6 @@ class _ClosingViewState extends State<ClosingView> {
                     borderSide: BorderSide(color: tokens.brandAction, width: 2),
                   ),
                 ),
-                onChanged: (_) => _noteEdited = true,
               ),
               const SizedBox(height: 12),
               ElevatedButton.icon(

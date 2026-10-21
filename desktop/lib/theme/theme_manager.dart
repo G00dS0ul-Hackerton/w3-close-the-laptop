@@ -7,7 +7,10 @@ import 'tokens.dart';
 
 /// Manages application appearance mode (System, Light, Dark) and local persistence.
 class ThemeManager extends ChangeNotifier {
+  final bool persistToDisk;
   ThemeMode _themeMode = ThemeMode.system;
+
+  ThemeManager({this.persistToDisk = true});
 
   ThemeMode get themeMode => _themeMode;
 
@@ -22,6 +25,10 @@ class ThemeManager extends ChangeNotifier {
 
   /// Initialize and load saved appearance preference from local JSON file.
   Future<void> loadPreference() async {
+    if (!persistToDisk) {
+      notifyListeners();
+      return;
+    }
     try {
       final file = File('${_appDataDir.path}\\$_fileName');
       if (!await file.exists()) {
@@ -55,6 +62,8 @@ class ThemeManager extends ChangeNotifier {
     if (_themeMode == mode) return;
     _themeMode = mode;
     notifyListeners();
+
+    if (!persistToDisk) return;
 
     try {
       final dir = _appDataDir;

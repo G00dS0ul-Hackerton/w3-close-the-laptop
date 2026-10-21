@@ -23,7 +23,9 @@ class _AuditViewState extends State<AuditView> {
 
   List<FindingItem> get _filteredFindings {
     if (_activeFilter == 'all') return widget.findings;
-    return widget.findings.where((f) => f.lifecycle.name == _activeFilter).toList();
+    return widget.findings
+        .where((f) => f.lifecycle.name.toLowerCase() == _activeFilter.toLowerCase())
+        .toList();
   }
 
   Widget _buildLegendItem(IconData icon, Color color, String label) {
@@ -89,12 +91,16 @@ class _AuditViewState extends State<AuditView> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: ['open', 'deferred', 'resolved', 'dismissed', 'all'].map((filter) {
+                children: ['open', 'deferred', 'resolved', 'evidenceRetired', 'dismissed', 'all'].map((filter) {
                   final isSelected = _activeFilter == filter;
-                  final label = filter[0].toUpperCase() + filter.substring(1);
+                  final label = filter == 'evidenceRetired'
+                      ? 'Evidence-retired'
+                      : filter == 'all'
+                          ? 'All findings'
+                          : filter[0].toUpperCase() + filter.substring(1);
 
                   return ChoiceChip(
-                    label: Text(label == 'All' ? 'All findings' : label),
+                    label: Text(label),
                     selected: isSelected,
                     selectedColor: tokens.panel,
                     backgroundColor: tokens.subtleSurface,
@@ -190,16 +196,53 @@ class _AuditViewState extends State<AuditView> {
                             : 'Needs judgment',
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: tokens.brandAction),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: tokens.subtleSurface,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      f.lifecycle.name.toUpperCase(),
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: tokens.secondaryText),
-                    ),
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      if (f.isStale)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: tokens.softBrandSurface,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: tokens.badgeUnverifiedText),
+                          ),
+                          child: Text(
+                            'STALE LOCATOR',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: tokens.badgeUnverifiedText,
+                            ),
+                          ),
+                        ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: f.lifecycle == FindingLifecycle.evidenceRetired
+                              ? tokens.softBrandSurface
+                              : tokens.subtleSurface,
+                          borderRadius: BorderRadius.circular(4),
+                          border: f.lifecycle == FindingLifecycle.evidenceRetired
+                              ? Border.all(color: tokens.brandAction)
+                              : null,
+                        ),
+                        child: Text(
+                          f.lifecycle == FindingLifecycle.evidenceRetired
+                              ? 'EVIDENCE-RETIRED'
+                              : f.lifecycle == FindingLifecycle.resolved
+                                  ? 'USER RESOLVED'
+                                  : f.lifecycle.name.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: f.lifecycle == FindingLifecycle.evidenceRetired
+                                ? tokens.brandAction
+                                : tokens.secondaryText,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -213,6 +256,17 @@ class _AuditViewState extends State<AuditView> {
                 f.description,
                 style: TextStyle(fontSize: 14, color: tokens.secondaryText),
               ),
+              if (f.isStale && f.staleReason != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Stale: ${f.staleReason}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: tokens.badgeUnverifiedText,
+                  ),
+                ),
+              ],
               if (f.reason != null && f.reason!.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(

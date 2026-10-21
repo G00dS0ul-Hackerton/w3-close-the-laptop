@@ -11,15 +11,21 @@ class SessionView extends StatelessWidget {
   final String intention;
   final List<String> criteria;
   final List<FindingItem> findings;
+  final List<SessionCheckReceipt> receipts;
   final bool isReviewing;
   final bool isPaused;
   final bool isEnded;
   final String quietStatus;
+  final bool isCleanWorkingTree;
+  final bool isEngineOffline;
+  final String? activeEngine;
   final VoidCallback onTriggerCheckpoint;
   final VoidCallback onTogglePause;
   final VoidCallback onNavigateToClosing;
   final ValueChanged<String> onUpdateIntention;
   final Function(FindingItem finding, FindingLifecycle status, String? reason) onUpdateFindingStatus;
+  final VoidCallback? onRetryConnection;
+  final VoidCallback? onSelectRepo;
 
   const SessionView({
     super.key,
@@ -27,15 +33,21 @@ class SessionView extends StatelessWidget {
     required this.intention,
     required this.criteria,
     required this.findings,
+    this.receipts = const [],
     required this.isReviewing,
     required this.isPaused,
     required this.isEnded,
     required this.quietStatus,
+    this.isCleanWorkingTree = false,
+    this.isEngineOffline = false,
+    this.activeEngine,
     required this.onTriggerCheckpoint,
     required this.onTogglePause,
     required this.onNavigateToClosing,
     required this.onUpdateIntention,
     required this.onUpdateFindingStatus,
+    this.onRetryConnection,
+    this.onSelectRepo,
   });
 
   Widget _buildBadge(BuildContext context, FindingItem f) {
@@ -75,6 +87,66 @@ class SessionView extends StatelessWidget {
           Icon(icon, size: 14, color: fg),
           const SizedBox(width: 4),
           Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fg)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEngineBadge(BuildContext context, String engine) {
+    final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ?? SteadyDevThemeTokens.light;
+    final lower = engine.toLowerCase();
+
+    Color bg;
+    Color fg;
+    IconData icon;
+    String label;
+
+    if (lower.contains('baseline')) {
+      bg = tokens.subtleSurface;
+      fg = tokens.secondaryText;
+      icon = Icons.checklist;
+      label = 'Baseline Checklist';
+    } else if (lower.contains('gemma')) {
+      bg = tokens.softBrandSurface;
+      fg = tokens.brandAction;
+      icon = Icons.auto_awesome;
+      label = 'Gemma 3 (4B)';
+    } else if (lower.contains('qwen')) {
+      bg = tokens.badgeJudgmentBg;
+      fg = tokens.badgeJudgmentText;
+      icon = Icons.alt_route;
+      label = 'Qwen 2.5 Coder (Fallback)';
+    } else {
+      bg = tokens.subtleSurface;
+      fg = tokens.secondaryText;
+      icon = Icons.checklist;
+      label = engine;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: fg.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: fg,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -270,6 +342,43 @@ class SessionView extends StatelessWidget {
               ),
               const SizedBox(height: 24),
 
+              // Engine Offline Banner
+              if (isEngineOffline) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: tokens.badgeUnverifiedBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: tokens.inputBoundary),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.portable_wifi_off_outlined, color: tokens.badgeUnverifiedText, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'SteadyDev local engine is offline. Start the backend with: uv run python -m steadydev.server --repo-path <path>',
+                          style: TextStyle(fontSize: 13, color: tokens.badgeUnverifiedText),
+                        ),
+                      ),
+                      if (onRetryConnection != null) ...[
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Retry'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: tokens.badgeUnverifiedText,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          onPressed: onRetryConnection,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+
               // Layout grid
               isNarrow
                   ? Column(
@@ -402,6 +511,58 @@ class SessionView extends StatelessWidget {
         ),
         const SizedBox(height: 14),
 
+        // Review Loading Card (Linear progress during model inference)
+        if (isReviewing) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: tokens.panel,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: tokens.brandAction),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(tokens.brandAction),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Reviewing working snapshot with local model...',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(tokens.brandAction),
+                    backgroundColor: tokens.subtleSurface,
+                    minHeight: 4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Evaluating code changes against session criteria and test receipts (running locally on CPU).',
+                  style: TextStyle(fontSize: 12, color: tokens.secondaryText),
+                ),
+              ],
+            ),
+          ),
+        ],
+
         // Findings List or Empty State
         if (openFindings.isEmpty)
           Container(
@@ -412,21 +573,44 @@ class SessionView extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: tokens.dividerLine),
             ),
-            child: Column(
-              children: [
-                Icon(Icons.check_circle, size: 36, color: tokens.brandAction),
-                const SizedBox(height: 10),
-                Text(
-                  'No open findings.',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.primaryText),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Deferred items remain in your closing card.',
-                  style: TextStyle(fontSize: 13, color: tokens.secondaryText),
-                ),
-              ],
-            ),
+            child: isCleanWorkingTree
+                ? Column(
+                    children: [
+                      Icon(Icons.check_circle_outline, size: 36, color: tokens.badgeConfirmedText),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Working tree clean',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold, color: tokens.primaryText),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'No uncommitted code changes detected in this repository.',
+                        style: TextStyle(fontSize: 13, color: tokens.secondaryText),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Edit project files or record a test run, then tap "Try a checkpoint" for a quiet second look.',
+                        style: TextStyle(fontSize: 12, color: tokens.secondaryText.withValues(alpha: 0.8)),
+                      ),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      Icon(Icons.check_circle, size: 36, color: tokens.brandAction),
+                      const SizedBox(height: 10),
+                      Text(
+                        'No open findings.',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold, color: tokens.primaryText),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Deferred items remain in your closing card.',
+                        style: TextStyle(fontSize: 13, color: tokens.secondaryText),
+                      ),
+                    ],
+                  ),
           )
         else
           ...openFindings.map((f) => _buildFindingCard(context, f)),
@@ -490,6 +674,8 @@ class SessionView extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 12, color: tokens.secondaryText),
                         ),
+                        if (activeEngine != null && !isReviewing)
+                          _buildEngineBadge(context, activeEngine!),
                       ],
                     ),
                   ),
@@ -554,51 +740,90 @@ class SessionView extends StatelessWidget {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.primaryText),
               ),
               const SizedBox(height: 14),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(color: tokens.badgeConfirmedBg, shape: BoxShape.circle),
-                    child: Icon(Icons.check, size: 14, color: tokens.badgeConfirmedText),
+              if (receipts.isEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: tokens.subtleSurface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: tokens.inputBoundary),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.fact_check_outlined, size: 20, color: tokens.secondaryText),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'No checks recorded yet',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: tokens.primaryText,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Passing test and linter checks attached to your session will appear here as verified evidence.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: tokens.secondaryText,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                for (final r in receipts)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Auth checks',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText)),
-                        Text('6 checks passed with assertions recorded.',
-                            style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: r.exitCode == 0 ? tokens.badgeConfirmedBg : tokens.badgeUnverifiedBg,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            r.exitCode == 0 ? Icons.check : Icons.warning_amber,
+                            size: 14,
+                            color: r.exitCode == 0 ? tokens.badgeConfirmedText : tokens.badgeUnverifiedText,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                r.command,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: tokens.primaryText,
+                                ),
+                              ),
+                              if (r.output.isNotEmpty)
+                                Text(
+                                  r.output,
+                                  style: TextStyle(fontSize: 12, color: tokens.secondaryText),
+                                ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(color: tokens.badgeConfirmedBg, shape: BoxShape.circle),
-                    child: Icon(Icons.check, size: 14, color: tokens.badgeConfirmedText),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Error-state check',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText)),
-                        Text('Previously flagged gap now retired.',
-                            style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ],
           ),
         ),

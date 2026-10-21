@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 
+import '../dialogs/select_repo_dialog.dart';
 import '../models/session_models.dart';
 import '../services/api_client.dart';
 import '../theme/theme_manager.dart';
@@ -24,7 +26,10 @@ class SteadyDevScaffold extends StatefulWidget {
 
 class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
   String _activeView = 'session';
+  String _repoPath = '';
   String _repoName = 'sample-project';
+  bool _isCleanWorkingTree = false;
+  bool _isEngineOffline = false;
   String _intention = 'Fix the login redirect and make the dashboard work on mobile.';
   final List<String> _criteria = [
     'Correct destination',
@@ -32,9 +37,12 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
     'No auth regressions',
   ];
   List<FindingItem> _findings = [];
+  List<SessionCheckReceipt> _receipts = [];
   bool _isReviewing = false;
   bool _isPaused = false;
   bool _isEnded = false;
+  bool _isNoteUserEdited = false;
+  String? _activeEngineTier;
   String _quietStatus = 'Ready for checkpoint';
   String _restartNote =
       'Open the dashboard at 390px and check mobile navigation. The login redirect change has sample auth-test evidence.';
@@ -43,6 +51,122 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
   void initState() {
     super.initState();
     _loadInitialSampleData();
+    if (widget.apiClient != null) {
+      _loadSessionFromEngine();
+    }
+  }
+
+  Future<void> _loadSessionFromEngine() async {
+    try {
+      final sessionData = await widget.apiClient!.getActiveSession();
+      if (!mounted) return;
+      setState(() {
+        if (sessionData.repoPath.isNotEmpty) _repoPath = sessionData.repoPath;
+        if (sessionData.repoName.isNotEmpty) _repoName = sessionData.repoName;
+        if (sessionData.intention.isNotEmpty) _intention = sessionData.intention;
+        if (sessionData.criteria.isNotEmpty) {
+          _criteria.clear();
+          _criteria.addAll(sessionData.criteria);
+        }
+        if (sessionData.findings.isNotEmpty) {
+          _findings = sessionData.findings;
+        }
+        _receipts = sessionData.checkReceipts;
+        if (sessionData.restartNote.isNotEmpty) {
+          _restartNote = sessionData.restartNote;
+        }
+        _isNoteUserEdited = sessionData.isNoteUserEdited;
+        _isEnded = sessionData.isEnded;
+        _isPaused = sessionData.isEnded;
+        _isCleanWorkingTree = sessionData.gitStatus?.state == 'clean';
+        _isEngineOffline = false;
+        _quietStatus = _isCleanWorkingTree ? 'Working tree clean' : 'Ready for checkpoint';
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (e.code == 'engine_offline') {
+          _isEngineOffline = true;
+          _quietStatus = 'Engine offline · Reconnect to review';
+        } else {
+          _quietStatus = 'Error: ${e.message}';
+        }
+      });
+    } catch (_) {
+      // Graceful fallback to initial sample data
+    }
+  }
+
+  Future<void> _openSelectRepoDialog() async {
+    List<String> recents = [];
+    if (widget.apiClient != null) {
+      try {
+        final recentList = await widget.apiClient!.getRecentRepos();
+        recents = recentList
+            .map((r) => r['repo_path'] as String? ?? '')
+            .where((p) => p.isNotEmpty)
+            .toList();
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+    final selected = await SelectRepoDialog.show(
+      context,
+      initialPath: _repoPath.isNotEmpty ? _repoPath : null,
+      recentRepos: recents,
+    );
+
+    if (selected != null && selected.isNotEmpty) {
+      await _onRepoSelected(selected);
+    }
+  }
+
+  Future<void> _onRepoSelected(String path) async {
+    setState(() {
+      _repoPath = path;
+      _repoName = path.split(Platform.pathSeparator).last;
+      _quietStatus = 'Connecting to repository...';
+    });
+
+    if (widget.apiClient != null) {
+      try {
+        final session = await widget.apiClient!.selectRepo(path);
+        if (!mounted) return;
+        setState(() {
+          _repoPath = session.repoPath.isNotEmpty ? session.repoPath : path;
+          _repoName = session.repoName.isNotEmpty ? session.repoName : _repoName;
+          _intention = session.intention;
+          if (session.criteria.isNotEmpty) {
+            _criteria.clear();
+            _criteria.addAll(session.criteria);
+          }
+          _findings = session.findings;
+          _receipts = session.checkReceipts;
+          _restartNote = session.restartNote;
+          _isNoteUserEdited = session.isNoteUserEdited;
+          _isEnded = session.isEnded;
+          _isPaused = session.isEnded;
+          _isCleanWorkingTree = session.gitStatus?.state == 'clean';
+          _isEngineOffline = false;
+          _quietStatus = _isCleanWorkingTree ? 'Working tree clean' : 'Ready for checkpoint';
+        });
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        setState(() {
+          if (e.code == 'engine_offline') {
+            _isEngineOffline = true;
+            _quietStatus = 'Engine offline';
+          } else {
+            _quietStatus = 'Selection failed: ${e.message}';
+          }
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _quietStatus = 'Error selecting repo: $e';
+        });
+      }
+    }
   }
 
   void _loadInitialSampleData() {
@@ -98,25 +222,61 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
     if (widget.apiClient != null) {
       try {
         final res = await widget.apiClient!.requestReview(
-          repoPath: '',
+          repoPath: _repoPath,
           intention: _intention,
           criteria: _criteria,
-          receipts: [],
+          receipts: _receipts,
           priorFindings: _findings,
         );
 
         if (res != null) {
           setState(() {
-            _findings = res.findings;
+            // Reconcile findings while protecting user lifecycle decisions
+            final existingMap = {for (var f in _findings) f.id: f};
+            final mergedFindings = <FindingItem>[];
+
+            for (final newF in res.findings) {
+              if (existingMap.containsKey(newF.id)) {
+                final existing = existingMap[newF.id]!;
+                if (existing.lifecycle != FindingLifecycle.open) {
+                  newF.lifecycle = existing.lifecycle;
+                  newF.reason = existing.reason;
+                }
+              }
+              mergedFindings.add(newF);
+            }
+
+            // Mark retired findings
+            for (final rid in res.retiredFindingIds) {
+              final match = existingMap[rid];
+              if (match != null) {
+                match.lifecycle = FindingLifecycle.evidenceRetired;
+                if (!mergedFindings.any((f) => f.id == match.id)) {
+                  mergedFindings.add(match);
+                }
+              }
+            }
+
+            _findings = mergedFindings;
             _quietStatus = 'Checkpoint complete';
-            if (res.restartNote.isNotEmpty) {
+            _activeEngineTier = res.modelTag;
+            if (!_isNoteUserEdited && res.restartNote.isNotEmpty) {
               _restartNote = res.restartNote;
             }
           });
         }
       } on ApiException catch (e) {
         setState(() {
-          _quietStatus = e.code == 'model_unavailable' ? 'Local model offline' : 'Review failed: ${e.message}';
+          if (e.code == 'engine_offline') {
+            _isEngineOffline = true;
+            _quietStatus = 'Engine offline · Reconnect to review';
+          } else if (e.code == 'model_unavailable') {
+            _quietStatus = 'Local model offline';
+          } else if (e.code == 'conflict') {
+            _quietStatus = 'Snapshot conflict: working tree modified';
+          } else {
+            _quietStatus = 'Review failed: ${e.message}';
+          }
         });
       } catch (e) {
         setState(() {
@@ -141,6 +301,79 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
       finding.lifecycle = status;
       finding.reason = reason;
     });
+    widget.apiClient?.updateFindingStatus(
+      findingId: finding.id,
+      status: finding.statusString,
+      userReason: reason,
+    );
+  }
+
+  Future<void> _resetSession() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final tokens = Theme.of(ctx).extension<SteadyDevThemeTokens>() ?? SteadyDevThemeTokens.light;
+        return AlertDialog(
+          backgroundColor: tokens.panel,
+          title: Text('Start a new session?', style: TextStyle(color: tokens.primaryText, fontSize: 16)),
+          content: Text(
+            'This will archive the current session and let you start fresh. Any previous deferred or resolved findings will be cleared from this view.',
+            style: TextStyle(color: tokens.secondaryText, fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('Cancel', style: TextStyle(color: tokens.secondaryText)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: tokens.brandAction,
+                foregroundColor: tokens.brandActionInk,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Start fresh'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    if (widget.apiClient != null) {
+      try {
+        final freshSession = await widget.apiClient!.resetSession(
+          repoPath: _repoPath,
+          intention: _intention,
+          criteria: _criteria,
+        );
+        if (!mounted) return;
+        setState(() {
+          _findings.clear();
+          _receipts.clear();
+          _restartNote = freshSession.restartNote;
+          _isNoteUserEdited = false;
+          _isEnded = false;
+          _isPaused = false;
+          _activeEngineTier = null;
+          _isCleanWorkingTree = freshSession.gitStatus?.state == 'clean';
+          _quietStatus = 'Fresh session started · Ready for checkpoint';
+        });
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _quietStatus = 'Reset failed: ${e.message}';
+        });
+      }
+    } else {
+      setState(() {
+        _findings.clear();
+        _receipts.clear();
+        _isEnded = false;
+        _isPaused = false;
+        _quietStatus = 'Fresh session started (local)';
+      });
+    }
   }
 
   @override
@@ -258,23 +491,32 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                           Flexible(
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (showBadges) ...[
-                                    Text('Workspace', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
-                                    const SizedBox(width: 6),
-                                    Text('/', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
-                                    const SizedBox(width: 6),
-                                  ],
-                                  Icon(Icons.fork_right, size: 16, color: tokens.secondaryText),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _repoName,
-                                    style: TextStyle(
-                                        fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText),
+                              child: InkWell(
+                                onTap: _openSelectRepoDialog,
+                                borderRadius: BorderRadius.circular(6),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (showBadges) ...[
+                                        Text('Workspace', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
+                                        const SizedBox(width: 6),
+                                        Text('/', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Icon(Icons.fork_right, size: 16, color: tokens.brandAction),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _repoName,
+                                        style: TextStyle(
+                                            fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Icon(Icons.arrow_drop_down, size: 18, color: tokens.secondaryText),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
@@ -317,6 +559,18 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                                         },
                                       ),
                                     ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: tokens.primaryText,
+                                      side: BorderSide(color: tokens.inputBoundary),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                    ),
+                                    icon: Icon(Icons.restart_alt, size: 16, color: tokens.brandAction),
+                                    label: const Text('New session', style: TextStyle(fontSize: 12)),
+                                    onPressed: _resetSession,
                                   ),
                                   if (showBadges) ...[
                                     const SizedBox(width: 12),
@@ -362,14 +616,27 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                           intention: _intention,
                           criteria: _criteria,
                           findings: _findings,
+                          receipts: _receipts,
                           isReviewing: _isReviewing,
                           isPaused: _isPaused,
                           isEnded: _isEnded,
                           quietStatus: _quietStatus,
+                          isCleanWorkingTree: _isCleanWorkingTree,
+                          isEngineOffline: _isEngineOffline,
+                          activeEngine: _activeEngineTier,
+                          onRetryConnection: _loadSessionFromEngine,
+                          onSelectRepo: _openSelectRepoDialog,
                           onTriggerCheckpoint: _triggerCheckpoint,
                           onTogglePause: () => setState(() => _isPaused = !_isPaused),
                           onNavigateToClosing: () => setState(() => _activeView = 'closing'),
-                          onUpdateIntention: (val) => setState(() => _intention = val),
+                          onUpdateIntention: (val) {
+                            setState(() => _intention = val);
+                            widget.apiClient?.updateSessionIntention(
+                              repoPath: _repoPath,
+                              intention: val,
+                              criteria: _criteria,
+                            );
+                          },
                           onUpdateFindingStatus: _updateFindingStatus,
                         )
                       : _activeView == 'audit'
@@ -379,20 +646,51 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                             )
                           : ClosingView(
                               findings: _findings,
+                              receipts: _receipts,
+                              changedFileCount: _findings.length,
                               initialRestartNote: _restartNote,
                               isEnded: _isEnded,
+                              onRestartNoteChanged: (newNote) {
+                                _restartNote = newNote;
+                                _isNoteUserEdited = true;
+                                widget.apiClient?.updateRestartNote(
+                                  repoPath: _repoPath,
+                                  restartNote: newNote,
+                                  isUserEdited: true,
+                                );
+                              },
                               onBackToSession: () => setState(() => _activeView = 'session'),
-                              onFinalizeSession: () {
+                              onFinalizeSession: (finalNote) async {
                                 setState(() {
+                                  _restartNote = finalNote;
+                                  _isNoteUserEdited = true;
                                   _isEnded = true;
                                   _isPaused = true;
                                 });
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Session closed. Your restart note is ready.'),
-                                    duration: Duration(seconds: 3),
-                                  ),
-                                );
+                                if (widget.apiClient != null) {
+                                  await widget.apiClient!.updateRestartNote(
+                                    repoPath: _repoPath,
+                                    restartNote: finalNote,
+                                    isUserEdited: true,
+                                  );
+                                  await widget.apiClient!.closeSession(
+                                    repoPath: _repoPath,
+                                    closingSummary: {
+                                      'closed_at': DateTime.now().toIso8601String(),
+                                      'unresolved_findings': _findings
+                                          .where((f) => f.lifecycle == FindingLifecycle.open)
+                                          .length,
+                                    },
+                                  );
+                                }
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Session closed. Your restart note is ready.'),
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                                }
                               },
                             ),
                 ),
