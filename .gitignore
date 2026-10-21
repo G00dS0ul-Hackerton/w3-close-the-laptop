@@ -62,3 +62,6 @@ desktop/windows/flutter/ephemeral/
 .flutter-plugins
 .flutter-plugins-dependencies
 
+# Test fixture git metadata
+tests/fixtures/**/.git/
+
