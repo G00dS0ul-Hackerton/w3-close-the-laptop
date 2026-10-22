@@ -162,6 +162,88 @@ def redact_sensitive_text(text: str) -> str:
     return redacted
 
 
+RE_CLOSING = re.compile(r"^[+-]\s*[\)\}\]\,\;]+$")
+RE_IMPORT = re.compile(r"^[+-]\s*(import|from|export)\s+")
+
+
+def compress_line_indent(line: str) -> str:
+    """Condense excessive indentation (>4 spaces) while preserving relative hierarchy."""
+    if line.startswith(("+", "-", " ")):
+        prefix = line[0]
+        content = line[1:]
+        stripped = content.lstrip(" ")
+        indent_len = len(content) - len(stripped)
+        if indent_len > 4:
+            new_indent = "  " + ("  " if indent_len > 8 else "")
+            return prefix + new_indent + stripped
+    return line
+
+
+def distill_unified_diff(
+    diff: str, max_lines: int = 60, max_bytes: int = 2500
+) -> tuple[str, bool]:
+    """Distill diff hunks: strip repetitive boilerplate, condense imports/delimiters, compress indentation."""
+    lines = diff.splitlines()
+    distilled: list[str] = []
+    in_import_run = 0
+
+    for l in lines:
+        # 1. Preserve headers and hunk locators
+        if l.startswith(("diff --git", "---", "+++", "@@")):
+            if in_import_run > 2:
+                distilled.append(f"+ // [... {in_import_run - 2} more imports]")
+            in_import_run = 0
+            distilled.append(l)
+            continue
+
+        # 2. Strip git metadata lines that add no semantic value
+        if l.startswith(("index ", "new file mode ", "deleted file mode ")):
+            continue
+
+        # 3. Collapse consecutive import blocks
+        if RE_IMPORT.match(l):
+            in_import_run += 1
+            if in_import_run <= 2:
+                distilled.append(compress_line_indent(l))
+            continue
+        elif in_import_run > 0:
+            if in_import_run > 2:
+                distilled.append(f"+ // [... {in_import_run - 2} more imports]")
+            in_import_run = 0
+
+        # 4. Strip pure whitespace additions/deletions/context
+        if l in ("+", "-", " "):
+            continue
+
+        # 5. Strip pure closing delimiter additions/deletions
+        if RE_CLOSING.match(l):
+            continue
+
+        # 6. Compress indentation and add
+        distilled.append(compress_line_indent(l))
+
+    if in_import_run > 2:
+        distilled.append(f"+ // [... {in_import_run - 2} more imports]")
+
+    # 7. Apply per-file line budget
+    was_truncated = False
+    if len(distilled) > max_lines:
+        omitted = len(distilled) - max_lines
+        distilled = distilled[:max_lines]
+        distilled.append(
+            f"[DIFF TRUNCATED: {omitted} lines omitted to preserve multi-file coverage]"
+        )
+        was_truncated = True
+
+    result = "\n".join(distilled)
+    if len(result.encode("utf-8")) > max_bytes:
+        result = result.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+        result += "\n[DIFF TRUNCATED: byte limit exceeded]"
+        was_truncated = True
+
+    return result, was_truncated
+
+
 def truncate_diff(
     diff: str, max_lines: int = 250, max_bytes: int = 4096
 ) -> tuple[str, bool]:
@@ -210,11 +292,11 @@ def build_review_packet(
     max_files: int = 6,
     max_aggregate_diff_bytes: int = 12288,
 ) -> ReviewPacket:
-    """Construct a clean, sanitized, bounded review packet."""
+    """Construct a clean, sanitized, bounded review packet with distilled diffs."""
     packet_id = f"pkt-{uuid.uuid4().hex[:8]}"
     now_utc = datetime.datetime.now(datetime.UTC).isoformat()
 
-    # Allowlist filter
+    # Allowlist filter and distill
     allowed_files: list[ChangedFile] = []
     omitted_files: list[str] = []
     is_truncated_overall = False
@@ -226,7 +308,9 @@ def build_review_packet(
             continue
 
         clean_diff = redact_sensitive_text(cf.diff)
-        trunc_diff, was_trunc = truncate_diff(clean_diff)
+        trunc_diff, was_trunc = distill_unified_diff(
+            clean_diff, max_lines=60, max_bytes=2500
+        )
         if was_trunc:
             is_truncated_overall = True
 
@@ -238,36 +322,36 @@ def build_review_packet(
             )
         )
 
-    # Cap modified files count
+    # Cap modified files count (default max_files = 8)
     if len(allowed_files) > max_files:
         excess = allowed_files[max_files:]
         allowed_files = allowed_files[:max_files]
         omitted_files.extend([f.path for f in excess])
         is_truncated_overall = True
 
-    # Cap aggregate diff bytes across all allowed files to protect CPU context
-    total_bytes = 0
-    final_allowed_files: list[ChangedFile] = []
-    for af in allowed_files:
-        diff_len = len(af.diff.encode("utf-8"))
-        if total_bytes + diff_len > max_aggregate_diff_bytes:
-            remaining = max(0, max_aggregate_diff_bytes - total_bytes)
-            if remaining > 200:
-                trunc_bytes = af.diff.encode("utf-8")[:remaining].decode(
+    # Ensure aggregate budget without dropping files (per-file line budget per C-6)
+    total_bytes = sum(len(f.diff.encode("utf-8")) for f in allowed_files)
+    if total_bytes > max_aggregate_diff_bytes and allowed_files:
+        is_truncated_overall = True
+        trunc_notice = "\n[DIFF TRUNCATED: aggregate packet budget reached]"
+        notice_len = len(trunc_notice.encode("utf-8"))
+        per_file_byte_budget = max(
+            400, (max_aggregate_diff_bytes // len(allowed_files)) - notice_len
+        )
+        budgeted_files: list[ChangedFile] = []
+        for af in allowed_files:
+            af_bytes = af.diff.encode("utf-8")
+            if len(af_bytes) > per_file_byte_budget:
+                trunc_text = af_bytes[:per_file_byte_budget].decode(
                     "utf-8", errors="ignore"
                 )
-                trunc_bytes += "\n[DIFF TRUNCATED: aggregate packet byte limit reached]"
-                final_allowed_files.append(
-                    ChangedFile(path=af.path, status=af.status, diff=trunc_bytes)
+                trunc_text += trunc_notice
+                budgeted_files.append(
+                    ChangedFile(path=af.path, status=af.status, diff=trunc_text)
                 )
             else:
-                omitted_files.append(af.path)
-            is_truncated_overall = True
-            break
-        else:
-            final_allowed_files.append(af)
-            total_bytes += diff_len
-    allowed_files = final_allowed_files
+                budgeted_files.append(af)
+        allowed_files = budgeted_files
 
     # Redact session intention and criteria
     clean_intention = redact_sensitive_text(session_intention)
@@ -302,7 +386,10 @@ def build_review_packet(
     )
 
 
-def format_packet_for_prompt(packet: ReviewPacket) -> str:
+def format_packet_for_prompt(
+    packet: ReviewPacket,
+    workspace_outline: list[dict[str, str]] | None = None,
+) -> str:
     """Format review packet into structured XML prompt text with data inertia boundaries."""
     parts = ["<review_context>"]
 
@@ -310,6 +397,16 @@ def format_packet_for_prompt(packet: ReviewPacket) -> str:
     parts.append(
         f"  <session_intention>\n{escape_xml_delimiters(packet.session_intention)}\n  </session_intention>"
     )
+
+    if workspace_outline:
+        parts.append("  <workspace_outline>")
+        parts.append("    <all_session_files>")
+        for f in workspace_outline:
+            parts.append(
+                f'      <file path="{escape_xml_delimiters(f.get("path", ""))}" status="{escape_xml_delimiters(f.get("status", "modified"))}" />'
+            )
+        parts.append("    </all_session_files>")
+        parts.append("  </workspace_outline>")
 
     parts.append("  <acceptance_criteria>")
     for idx, c in enumerate(packet.acceptance_criteria, 1):

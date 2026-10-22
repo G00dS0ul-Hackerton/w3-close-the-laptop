@@ -75,3 +75,29 @@ def test_unload_model() -> None:
 
     client = OllamaClient(client=httpx.Client(transport=httpx.MockTransport(handler)))
     assert client.unload_model("gemma3:4b") is True
+
+
+def test_chat_default_cpu_options() -> None:
+    captured_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_payload
+        import json
+
+        captured_payload = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "model": "qwen2.5-coder:3b",
+                "message": {"role": "assistant", "content": "{}"},
+                "total_duration": 1000000,
+            },
+        )
+
+    client = OllamaClient(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    client.chat("qwen2.5-coder:3b", [{"role": "user", "content": "hi"}])
+    opts = captured_payload.get("options", {})
+    assert opts.get("num_ctx") == 2048
+    assert opts.get("num_predict") == 512
+    assert "num_thread" in opts
+    assert opts.get("repeat_penalty") == 1.1

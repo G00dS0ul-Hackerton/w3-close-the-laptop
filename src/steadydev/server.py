@@ -46,6 +46,36 @@ class SteadyDevServer(ThreadingHTTPServer):
         self.store = store or SessionStore(db_path=db_path)
         self._repo_lock = threading.Lock()
         self._is_reviewing = False
+        self._review_lock = threading.Lock()
+        self._review_progress: dict[str, Any] = {
+            "is_reviewing": False,
+            "current_chunk": 0,
+            "total_chunks": 0,
+            "current_files": "",
+            "phase": "idle",
+        }
+
+    def update_review_progress(
+        self, current: int, total: int, files: str, phase: str = "auditing"
+    ) -> None:
+        with self._review_lock:
+            self._review_progress = {
+                "is_reviewing": True,
+                "current_chunk": current,
+                "total_chunks": total,
+                "current_files": files,
+                "phase": phase,
+            }
+
+    def reset_review_progress(self) -> None:
+        with self._review_lock:
+            self._review_progress = {
+                "is_reviewing": False,
+                "current_chunk": 0,
+                "total_chunks": 0,
+                "current_files": "",
+                "phase": "idle",
+            }
 
 
 def format_model_display_name(
@@ -264,6 +294,10 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
         elif self.path == "/api/repos/recent":
             recents = self.server.store.list_recent_repositories()
             self.send_json(200, {"repositories": recents})
+        elif self.path == "/api/review/progress":
+            with self.server._review_lock:
+                progress_copy = dict(self.server._review_progress)
+            self.send_json(200, progress_copy)
         else:
             self.send_json(
                 404, {"error": "not_found", "message": f"Unknown endpoint: {self.path}"}
@@ -509,7 +543,14 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             if not repo_path:
                 return
 
+            def on_progress(cur: int, tot: int, files: str) -> None:
+                phase = "synthesizing" if "Synthesizing" in files else "auditing"
+                self.server.update_review_progress(cur, tot, files, phase=phase)
+
             self.server._is_reviewing = True
+            self.server.update_review_progress(
+                0, 1, "Starting snapshot review...", phase="starting"
+            )
             try:
                 session = self.server.store.get_or_create_session(
                     str(repo_path), repo_path.name
@@ -565,6 +606,7 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     packet,
                     model_name=model_name,
                     fallback_model_name=fallback_model,
+                    progress_callback=on_progress,
                 )
 
                 # Persist snapshot, receipts, and findings to SQLite store
@@ -601,6 +643,11 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                 self.send_json(200, result.model_dump(mode="json"))
             finally:
                 self.server._is_reviewing = False
+                self.server.reset_review_progress()
+
+        elif self.path == "/api/review/cancel":
+            self.server.reset_review_progress()
+            self.send_json(200, {"status": "cancelled", "message": "Review cancelled"})
 
         elif self.path == "/api/shutdown":
             self.send_json(200, {"status": "shutting_down"})

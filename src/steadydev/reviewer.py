@@ -3,9 +3,11 @@
 import json
 import os
 import re
+from collections.abc import Callable
 
 from steadydev.baseline import ChecklistBaseline
 from steadydev.models import (
+    ChangedFile,
     CheckReceipt,
     Finding,
     FindingCategory,
@@ -68,6 +70,21 @@ Return ONLY valid JSON matching this schema:
   "retired_finding_ids": ["prior_finding_id"],
   "closing_summary": "1-2 sentence calm summary of what changed and what was verified",
   "restart_note": "A clear, actionable starting point for tomorrow"
+}"""
+
+SYNTHESIS_SYSTEM_PROMPT = """You are SteadyDev, a quiet, local-first code review companion helping developers end their work sessions with clarity.
+Given a developer's session intention, acceptance criteria, touched files, check receipts, and the aggregated findings list from the diff audit, produce the closing summary and restart note.
+
+CRITICAL RULES:
+1. Closing Summary: 1-2 calm, factual sentences summarizing what was accomplished in code and what was verified by check receipts.
+2. Truthfulness & C-4: Having zero findings does NOT mean all work is complete or verified unless the criteria were confirmed by passing check receipts. Never claim a task was completed if unrecorded.
+3. Restart Note: A clear, actionable starting point for tomorrow (e.g. next check to run, unverified finding to investigate, or next task).
+
+OUTPUT FORMAT:
+Return ONLY valid JSON matching this schema:
+{
+  "closing_summary": "1-2 calm sentences",
+  "restart_note": "Actionable starting point"
 }"""
 
 
@@ -372,113 +389,436 @@ class Reviewer:
             error=error,
         )
 
+    def _partition_into_chunks(
+        self,
+        packet: ReviewPacket,
+        max_chunk_chars: int = 2500,
+        max_files_per_chunk: int = 2,
+    ) -> list[ReviewPacket]:
+        """Partition a review packet into bounded chunks for CPU-friendly inference."""
+        if len(packet.changed_files) <= 1:
+            return [packet]
+
+        total_diff_len = sum(len(f.diff) for f in packet.changed_files)
+        if (
+            len(packet.changed_files) <= max_files_per_chunk
+            and total_diff_len <= max_chunk_chars
+        ):
+            return [packet]
+
+        chunks_files: list[list[ChangedFile]] = []
+        current_files: list[ChangedFile] = []
+        current_chars = 0
+
+        for cf in packet.changed_files:
+            cf_len = len(cf.diff)
+            if current_files and (
+                len(current_files) >= max_files_per_chunk
+                or (current_chars + cf_len > max_chunk_chars and current_chars > 0)
+            ):
+                chunks_files.append(current_files)
+                current_files = [cf]
+                current_chars = cf_len
+            else:
+                current_files.append(cf)
+                current_chars += cf_len
+
+        if current_files:
+            chunks_files.append(current_files)
+
+        chunk_packets: list[ReviewPacket] = []
+        for idx, cfiles in enumerate(chunks_files, 1):
+            cp = ReviewPacket(
+                packet_id=f"{packet.packet_id}-c{idx}",
+                timestamp_utc=packet.timestamp_utc,
+                repo_name=packet.repo_name,
+                session_intention=packet.session_intention,
+                acceptance_criteria=packet.acceptance_criteria,
+                changed_files=cfiles,
+                check_receipts=packet.check_receipts,
+                prior_findings=packet.prior_findings,
+                explicit_deferrals=packet.explicit_deferrals,
+                truncated=packet.truncated,
+                omitted_files=packet.omitted_files,
+                snapshot_hash=packet.snapshot_hash,
+                git_head_sha=packet.git_head_sha,
+            )
+            chunk_packets.append(cp)
+
+        return chunk_packets
+
+    def _synthesize_session_summary(
+        self,
+        packet: ReviewPacket,
+        all_findings: list[Finding],
+        model_name: str,
+    ) -> tuple[str, str, dict[str, float]]:
+        """Synthesize closing summary and restart note across all chunks."""
+        findings_bullets = (
+            "\n".join(
+                f"- [{f.category.value}] {f.locator}: {f.description}"
+                for f in all_findings
+            )
+            if all_findings
+            else "None (zero diff contradictions detected)"
+        )
+        files_bullets = "\n".join(f"- {f.path}" for f in packet.changed_files)
+        receipts_bullets = (
+            "\n".join(
+                f"- {r.command} (exit {r.exit_code}): {r.output_summary}"
+                for r in packet.check_receipts
+            )
+            if packet.check_receipts
+            else "None recorded"
+        )
+        criteria_bullets = "\n".join(f"- {c}" for c in packet.acceptance_criteria)
+
+        user_content = (
+            f"Synthesize the closing summary and restart note for this session:\n\n"
+            f"<session_intention>\n{packet.session_intention}\n</session_intention>\n"
+            f"<acceptance_criteria>\n{criteria_bullets}\n</acceptance_criteria>\n"
+            f'<modified_files count="{len(packet.changed_files)}">\n{files_bullets}\n</modified_files>\n'
+            f'<check_receipts count="{len(packet.check_receipts)}">\n{receipts_bullets}\n</check_receipts>\n'
+            f'<audit_findings count="{len(all_findings)}">\n{findings_bullets}\n</audit_findings>\n'
+        )
+
+        messages = [
+            {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ]
+
+        timings: dict[str, float] = {}
+        try:
+            raw_response = self.ollama_client.chat(
+                model=model_name,
+                messages=messages,
+                json_format=True,
+            )
+            timings = {
+                "total_duration_ms": raw_response.get("total_duration_ms", 0.0),
+                "load_duration_ms": raw_response.get("load_duration_ms", 0.0),
+                "prompt_eval_duration_ms": raw_response.get(
+                    "prompt_eval_duration_ms", 0.0
+                ),
+                "eval_duration_ms": raw_response.get("eval_duration_ms", 0.0),
+            }
+            content = strip_markdown_fences(raw_response.get("content", ""))
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                summary = parsed.get("closing_summary", "")
+                restart = parsed.get("restart_note", "")
+                if summary and restart:
+                    return summary, restart, timings
+        except (OllamaClientError, json.JSONDecodeError, KeyError, ValueError):
+            # Model synthesis failed or malformed; continue to deterministic fallback synthesis
+            pass
+
+        # Deterministic fallback synthesis
+        file_count = len(packet.changed_files)
+        receipt_count = len(packet.check_receipts)
+        finding_count = len(all_findings)
+        summary = f"Inspected {file_count} modified {'file' if file_count == 1 else 'files'} with {receipt_count} check {'receipt' if receipt_count == 1 else 'receipts'}."
+        if finding_count == 0:
+            summary += " No diff contradictions or unverified edits detected."
+        else:
+            summary += f" Detected {finding_count} {'observation' if finding_count == 1 else 'observations'} across chunks."
+
+        if all_findings:
+            restart = f"Review remaining observations starting with {all_findings[0].locator}."
+        elif packet.acceptance_criteria:
+            restart = (
+                f"Continue with remaining criteria: {packet.acceptance_criteria[0]}."
+            )
+        else:
+            restart = (
+                "All current checks and diff chunks clean. Resume with next milestone."
+            )
+
+        return summary, restart, timings
+
     def review(
         self,
         packet: ReviewPacket,
         model_name: str | None = "gemma3:4b",
         fallback_model_name: str | None = "qwen2.5-coder:3b",
         use_baseline_fallback: bool = True,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> ReviewResult:
-        """Execute review via 3-tier cascade: primary -> fallback model -> baseline checklist."""
+        """Execute review via Map-Reduce chunking with 3-tier cascade."""
         # Baseline-only execution
         if not model_name or model_name in ("baseline", "baseline-checklist"):
             return self.baseline.evaluate(packet)
 
-        # Prepare prompt
-        prompt_context = format_packet_for_prompt(packet)
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {
-                "role": "user",
-                "content": f"Review this session context and emit JSON:\n\n{prompt_context}",
-            },
-        ]
+        chunks = self._partition_into_chunks(packet)
 
-        # 1. Primary Model Attempt
-        try:
-            parsed, timings, raw_text, primary_err = self._invoke_single_model(
-                model_name, messages
-            )
-        except OllamaConnectionError as exc:
-            # Short-circuit: daemon offline, do NOT waste calls on fallback model
-            if use_baseline_fallback:
-                fb = self.baseline.evaluate(packet)
-                fb.status = "fallback_baseline"
-                fb.error = f"Model '{model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
-                fb.model_name = f"{model_name}-fallback-baseline"
-                return fb
-            return ReviewResult(
-                packet_id=packet.packet_id,
-                status="unavailable",
-                model_name=model_name,
-                error=str(exc),
-            )
+        # 1. Single chunk fast path
+        if len(chunks) == 1:
+            if progress_callback:
+                file_names = ", ".join(
+                    os.path.basename(f.path) for f in packet.changed_files
+                )
+                progress_callback(1, 1, file_names)
 
-        if parsed is not None:
-            return self._process_model_json(
-                parsed=parsed,
-                packet=packet,
-                model_name=model_name,
-                raw_text=raw_text,
-                timings=timings,
-            )
+            prompt_context = format_packet_for_prompt(packet)
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {
+                    "role": "user",
+                    "content": f"Review this session context and emit JSON:\n\n{prompt_context}",
+                },
+            ]
 
-        # 2. Intermediate Fallback Model Attempt
-        last_raw_text = raw_text
-        last_timings = timings
-        combined_err = f"Model '{model_name}' failed ({primary_err})"
-
-        if fallback_model_name and fallback_model_name != model_name:
+            # Primary Model Attempt
             try:
-                parsed_fb, timings_fb, raw_text_fb, fb_err = self._invoke_single_model(
-                    fallback_model_name, messages
+                parsed, timings, raw_text, primary_err = self._invoke_single_model(
+                    model_name, messages
                 )
             except OllamaConnectionError as exc:
                 if use_baseline_fallback:
                     fb = self.baseline.evaluate(packet)
                     fb.status = "fallback_baseline"
-                    fb.error = f"{combined_err} and Ollama connection failed ({exc}). Fell back to baseline."
+                    fb.error = f"Model '{model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
                     fb.model_name = f"{model_name}-fallback-baseline"
                     return fb
                 return ReviewResult(
                     packet_id=packet.packet_id,
                     status="unavailable",
-                    model_name=fallback_model_name,
+                    model_name=model_name,
                     error=str(exc),
                 )
 
-            if parsed_fb is not None:
-                fallback_note = f"Primary model '{model_name}' failed ({primary_err}). Fell back to fallback model '{fallback_model_name}'."
+            if parsed is not None:
                 return self._process_model_json(
-                    parsed=parsed_fb,
+                    parsed=parsed,
                     packet=packet,
-                    model_name=fallback_model_name,
-                    raw_text=raw_text_fb,
-                    timings=timings_fb,
-                    error=fallback_note,
-                )
-            else:
-                last_raw_text = raw_text_fb or raw_text
-                last_timings = timings_fb or timings
-                combined_err += (
-                    f"; fallback model '{fallback_model_name}' failed ({fb_err})"
+                    model_name=model_name,
+                    raw_text=raw_text,
+                    timings=timings,
                 )
 
-        # 3. Safety Floor: Baseline Checklist
-        if use_baseline_fallback:
-            fallback_result = self.baseline.evaluate(packet)
-            fallback_result.status = "fallback_baseline"
-            fallback_result.error = f"{combined_err}. Fell back to baseline."
-            fallback_result.model_name = f"{model_name}-fallback-baseline"
-            fallback_result.raw_content = last_raw_text
-            fallback_result.timing_ms = last_timings
-            return fallback_result
+            # Intermediate Fallback Model Attempt
+            last_raw_text = raw_text
+            last_timings = timings
+            combined_err = f"Model '{model_name}' failed ({primary_err})"
+
+            if fallback_model_name and fallback_model_name != model_name:
+                try:
+                    parsed_fb, timings_fb, raw_text_fb, fb_err = (
+                        self._invoke_single_model(fallback_model_name, messages)
+                    )
+                except OllamaConnectionError as exc:
+                    if use_baseline_fallback:
+                        fb = self.baseline.evaluate(packet)
+                        fb.status = "fallback_baseline"
+                        fb.error = f"{combined_err} and Ollama connection failed ({exc}). Fell back to baseline."
+                        fb.model_name = f"{model_name}-fallback-baseline"
+                        return fb
+                    return ReviewResult(
+                        packet_id=packet.packet_id,
+                        status="unavailable",
+                        model_name=fallback_model_name,
+                        error=str(exc),
+                    )
+
+                if parsed_fb is not None:
+                    fallback_note = f"Primary model '{model_name}' failed ({primary_err}). Fell back to fallback model '{fallback_model_name}'."
+                    return self._process_model_json(
+                        parsed=parsed_fb,
+                        packet=packet,
+                        model_name=fallback_model_name,
+                        raw_text=raw_text_fb,
+                        timings=timings_fb,
+                        error=fallback_note,
+                    )
+                else:
+                    last_raw_text = raw_text_fb or raw_text
+                    last_timings = timings_fb or timings
+                    combined_err += (
+                        f"; fallback model '{fallback_model_name}' failed ({fb_err})"
+                    )
+
+            # Safety Floor: Baseline Checklist
+            if use_baseline_fallback:
+                fallback_result = self.baseline.evaluate(packet)
+                fallback_result.status = "fallback_baseline"
+                fallback_result.error = f"{combined_err}. Fell back to baseline."
+                fallback_result.model_name = f"{model_name}-fallback-baseline"
+                fallback_result.raw_content = last_raw_text
+                fallback_result.timing_ms = last_timings
+                return fallback_result
+
+            return ReviewResult(
+                packet_id=packet.packet_id,
+                status="parse_error",
+                model_name=model_name,
+                raw_content=last_raw_text,
+                error=combined_err,
+                timing_ms=last_timings,
+            )
+
+        # 2. Multi-chunk Map-Reduce path
+        outline = [{"path": f.path, "status": f.status} for f in packet.changed_files]
+        all_findings: list[Finding] = []
+        all_retired_ids: list[str] = []
+        total_timings: dict[str, float] = {
+            "total_duration_ms": 0.0,
+            "load_duration_ms": 0.0,
+            "prompt_eval_duration_ms": 0.0,
+            "eval_duration_ms": 0.0,
+        }
+        models_used: list[str] = []
+        all_raw_chunks: list[dict] = []
+        fallback_notes: list[str] = []
+
+        for chunk_idx, chunk in enumerate(chunks, 1):
+            file_names = ", ".join(
+                os.path.basename(f.path) for f in chunk.changed_files
+            )
+            if progress_callback:
+                progress_callback(chunk_idx, len(chunks), file_names)
+
+            prompt_context = format_packet_for_prompt(chunk, workspace_outline=outline)
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {
+                    "role": "user",
+                    "content": f"Review this session context chunk ({chunk_idx}/{len(chunks)}) and emit JSON:\n\n{prompt_context}",
+                },
+            ]
+
+            chunk_parsed = None
+            chunk_timings: dict[str, float] = {}
+            chunk_raw_text = ""
+            chunk_model = model_name or "gemma3:4b"
+
+            # Primary Attempt
+            try:
+                chunk_parsed, chunk_timings, chunk_raw_text, p_err = (
+                    self._invoke_single_model(chunk_model, messages)
+                )
+            except OllamaConnectionError as exc:
+                if use_baseline_fallback:
+                    fb = self.baseline.evaluate(packet)
+                    fb.status = "fallback_baseline"
+                    fb.error = f"Model '{chunk_model}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
+                    fb.model_name = f"{chunk_model}-fallback-baseline"
+                    return fb
+                return ReviewResult(
+                    packet_id=packet.packet_id,
+                    status="unavailable",
+                    model_name=chunk_model,
+                    error=str(exc),
+                )
+
+            # Fallback Attempt if primary failed
+            if (
+                chunk_parsed is None
+                and fallback_model_name
+                and fallback_model_name != chunk_model
+            ):
+                try:
+                    chunk_parsed, chunk_timings, chunk_raw_text, fb_err = (
+                        self._invoke_single_model(fallback_model_name, messages)
+                    )
+                    if chunk_parsed is not None:
+                        chunk_model = fallback_model_name
+                        fallback_notes.append(
+                            f"Chunk {chunk_idx}: fell back to {fallback_model_name} ({p_err})"
+                        )
+                except OllamaConnectionError as exc:
+                    if use_baseline_fallback:
+                        fb = self.baseline.evaluate(packet)
+                        fb.status = "fallback_baseline"
+                        fb.error = f"Model '{fallback_model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
+                        fb.model_name = f"{model_name}-fallback-baseline"
+                        return fb
+                    return ReviewResult(
+                        packet_id=packet.packet_id,
+                        status="unavailable",
+                        model_name=fallback_model_name,
+                        error=str(exc),
+                    )
+
+            # Accumulate timings
+            for k in total_timings:
+                total_timings[k] += chunk_timings.get(k, 0.0)
+
+            if chunk_parsed is not None:
+                chunk_res = self._process_model_json(
+                    parsed=chunk_parsed,
+                    packet=packet,
+                    model_name=chunk_model,
+                    raw_text=chunk_raw_text,
+                    timings=chunk_timings,
+                )
+                all_findings.extend(chunk_res.findings)
+                all_retired_ids.extend(chunk_res.retired_finding_ids)
+                models_used.append(chunk_model)
+                all_raw_chunks.append(chunk_parsed)
+            else:
+                # Fall back chunk to baseline
+                fb_chunk = self.baseline.evaluate(chunk)
+                all_findings.extend(fb_chunk.findings)
+                all_retired_ids.extend(fb_chunk.retired_finding_ids)
+                models_used.append("baseline-checklist")
+                fallback_notes.append(
+                    f"Chunk {chunk_idx}: fell back to baseline ({p_err})"
+                )
+
+        # Deduplicate findings across chunks
+        seen_ids: set[str] = set()
+        unique_findings: list[Finding] = []
+        for f in all_findings:
+            if f.finding_id not in seen_ids:
+                seen_ids.add(f.finding_id)
+                unique_findings.append(f)
+
+        unique_retired_ids = list(dict.fromkeys(all_retired_ids))
+
+        # Synthesis step
+        if progress_callback:
+            progress_callback(
+                len(chunks), len(chunks), "Synthesizing session checkpoint..."
+            )
+        synth_model = (
+            model_name
+            if any(m not in ("baseline", "baseline-checklist") for m in models_used)
+            else None
+        )
+        if synth_model:
+            summary, restart, synth_timings = self._synthesize_session_summary(
+                packet=packet,
+                all_findings=unique_findings,
+                model_name=synth_model,
+            )
+            for k in total_timings:
+                total_timings[k] += synth_timings.get(k, 0.0)
+        else:
+            fb_full = self.baseline.evaluate(packet)
+            summary = fb_full.closing_summary
+            restart = fb_full.restart_note
+
+        status = "findings_detected" if unique_findings else "clean"
+        if all(m == "baseline-checklist" for m in models_used):
+            status = "fallback_baseline"
+
+        effective_model = (
+            model_name
+            if all(m == model_name for m in models_used)
+            else f"{model_name}-chunked"
+        )
+        error_msg = "; ".join(fallback_notes) if fallback_notes else None
 
         return ReviewResult(
             packet_id=packet.packet_id,
-            status="parse_error",
-            model_name=model_name,
-            raw_content=last_raw_text,
-            error=combined_err,
-            timing_ms=last_timings,
+            status=status,
+            model_name=effective_model,
+            findings=unique_findings,
+            retired_finding_ids=unique_retired_ids,
+            closing_summary=summary,
+            restart_note=restart,
+            timing_ms=total_timings,
+            raw_content=json.dumps(all_raw_chunks),
+            raw_json={"chunks": all_raw_chunks},
+            error=error_msg,
         )

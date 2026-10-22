@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from steadydev.models import Finding, FindingCategory, ReviewPacket
+from steadydev.models import ChangedFile, Finding, FindingCategory, ReviewPacket
 from steadydev.ollama_client import OllamaClient, OllamaConnectionError
 from steadydev.reviewer import Reviewer, strip_markdown_fences, validate_locator
 
@@ -489,3 +489,80 @@ def test_reviewer_cascade_connection_error_short_circuits_to_baseline(
     assert "baseline" in res.model_name
     # Crucial: chat must only be called ONCE!
     assert mock_client.chat.call_count == 1
+
+
+def test_reviewer_partition_into_chunks(sample_clean_packet: ReviewPacket) -> None:
+    reviewer = Reviewer()
+    # 1 file returns single chunk
+    chunks1 = reviewer._partition_into_chunks(sample_clean_packet)
+    assert len(chunks1) == 1
+
+    # 4 files partitioned into 2 chunks (max 2 files per chunk)
+    files = [
+        ChangedFile(path=f"src/file{i}.py", diff=f"+x{i} = 1\n") for i in range(1, 5)
+    ]
+    packet4 = ReviewPacket(
+        packet_id="pkt-4",
+        timestamp_utc="2026-10-22T00:00:00Z",
+        repo_name="repo",
+        session_intention="Test 4 files",
+        acceptance_criteria=["Pass"],
+        changed_files=files,
+    )
+    chunks2 = reviewer._partition_into_chunks(packet4)
+    assert len(chunks2) == 2
+    assert len(chunks2[0].changed_files) == 2
+    assert len(chunks2[1].changed_files) == 2
+    assert chunks2[0].changed_files[0].path == "src/file1.py"
+    assert chunks2[1].changed_files[0].path == "src/file3.py"
+
+
+def test_reviewer_map_reduce_with_progress_callback() -> None:
+    mock_client = MagicMock(spec=OllamaClient)
+
+    # Chunk 1 response, Chunk 2 response, Synthesis response
+    chunk1_json = '{"status": "findings_detected", "findings": [{"category": "unverified", "locator": "src/file1.py:10", "description": "No check"}], "closing_summary": "c1", "restart_note": "r1"}'
+    chunk2_json = '{"status": "clean", "findings": [], "closing_summary": "c2", "restart_note": "r2"}'
+    synthesis_json = '{"closing_summary": "Synthesized 4 files", "restart_note": "Run tests on file1 tomorrow"}'
+
+    mock_client.chat.side_effect = [
+        {"content": chunk1_json, "total_duration_ms": 500.0},
+        {"content": chunk2_json, "total_duration_ms": 400.0},
+        {"content": synthesis_json, "total_duration_ms": 300.0},
+    ]
+
+    files = [
+        ChangedFile(path=f"src/file{i}.py", diff=f"+x{i} = 1\n") for i in range(1, 5)
+    ]
+    packet = ReviewPacket(
+        packet_id="pkt-mr",
+        timestamp_utc="2026-10-22T00:00:00Z",
+        repo_name="repo",
+        session_intention="Test map reduce",
+        acceptance_criteria=["Verify 4 files"],
+        changed_files=files,
+    )
+
+    progress_events: list[tuple[int, int, str]] = []
+
+    def callback(cur: int, tot: int, desc: str) -> None:
+        progress_events.append((cur, tot, desc))
+
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(packet, model_name="gemma3:4b", progress_callback=callback)
+
+    assert res.status == "findings_detected"
+    assert len(res.findings) == 1
+    assert res.findings[0].locator == "src/file1.py:10"
+    assert res.closing_summary == "Synthesized 4 files"
+    assert res.restart_note == "Run tests on file1 tomorrow"
+
+    # Verify progress events: Chunk 1, Chunk 2, Synthesis
+    assert len(progress_events) == 3
+    assert progress_events[0][0] == 1
+    assert progress_events[0][1] == 2
+    assert "file1.py" in progress_events[0][2]
+    assert progress_events[1][0] == 2
+    assert progress_events[1][1] == 2
+    assert "file3.py" in progress_events[1][2]
+    assert "Synthesizing" in progress_events[2][2]

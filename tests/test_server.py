@@ -427,3 +427,34 @@ def test_get_models_endpoint_unauthorized(running_server: dict) -> None:
     base_url = running_server["base_url"]
     resp = httpx.get(f"{base_url}/api/models")
     assert resp.status_code == 401
+
+
+def test_review_progress_endpoint(running_server: dict) -> None:
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+
+    resp = httpx.get(
+        f"{base_url}/api/review/progress",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "is_reviewing" in data
+    assert "current_chunk" in data
+    assert "total_chunks" in data
+    assert "current_files" in data
+    assert "phase" in data
+    assert data["is_reviewing"] is False
+
+
+def test_review_cancel_endpoint(running_server: dict) -> None:
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+
+    resp = httpx.post(
+        f"{base_url}/api/review/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "cancelled"

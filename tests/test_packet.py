@@ -5,6 +5,7 @@ import os
 from steadydev.models import ChangedFile, CheckReceipt
 from steadydev.packet import (
     build_review_packet,
+    distill_unified_diff,
     escape_xml_delimiters,
     format_packet_for_prompt,
     is_allowlisted,
@@ -200,4 +201,67 @@ def test_diff_budgeting_defaults_and_caps() -> None:
     # Total diff bytes should not exceed 12288
     total_bytes = sum(len(f.diff.encode("utf-8")) for f in packet.changed_files)
     assert total_bytes <= 12288 + 200  # allowing for the truncation notice tag
+    assert packet.truncated is True
+
+
+def test_distill_unified_diff_strips_boilerplate() -> None:
+    raw_diff = (
+        "diff --git a/src/app.py b/src/app.py\n"
+        "index 1234567..abcdef8 100644\n"
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -1,15 +1,18 @@\n"
+        "+import os\n"
+        "+import sys\n"
+        "+import json\n"
+        "+import re\n"
+        " \n"
+        "-        old_indent = 1\n"
+        "+        def calculate(x: int) -> int:\n"
+        "+            return x * 2\n"
+        "+\n"
+        "+        }\n"
+        "+        );\n"
+    )
+    distilled, was_trunc = distill_unified_diff(raw_diff, max_lines=60, max_bytes=2500)
+    assert was_trunc is False
+    # Headers preserved
+    assert "diff --git" in distilled
+    assert "@@ -1,15 +1,18 @@" in distilled
+    # Git metadata stripped
+    assert "index 1234567" not in distilled
+    # Collapsed imports
+    assert "import os" in distilled
+    assert "import sys" in distilled
+    assert "[... 2 more imports]" in distilled
+    # Semantic change preserved
+    assert "def calculate(x: int) -> int:" in distilled
+    # Indentation compressed
+    assert "        def calculate" not in distilled
+    # Whitespace and closing delimiters stripped
+    assert "+        }" not in distilled
+    assert "+        );" not in distilled
+
+
+def test_distill_c6_multi_file_preservation() -> None:
+    """Verifies C-6: all 6 files are preserved under aggregate budget without dropping files."""
+    files = [
+        ChangedFile(path=f"src/file{i}.py", diff="+" + f"data_{i} = 1\n" * 100)
+        for i in range(1, 7)
+    ]
+    packet = build_review_packet(
+        session_intention="Test C-6 preservation",
+        acceptance_criteria=["Preserve files"],
+        changed_files=files,
+        check_receipts=[],
+        max_files=6,
+        max_aggregate_diff_bytes=6000,
+    )
+    # No files dropped to omitted_files
+    assert len(packet.changed_files) == 6
+    assert len(packet.omitted_files) == 0
+    # Every file has its path preserved
+    paths = [cf.path for cf in packet.changed_files]
+    for i in range(1, 7):
+        assert f"src/file{i}.py" in paths
     assert packet.truncated is True
