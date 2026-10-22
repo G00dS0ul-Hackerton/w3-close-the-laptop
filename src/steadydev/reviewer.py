@@ -381,7 +381,7 @@ class Reviewer:
     ) -> ReviewResult:
         """Execute review via 3-tier cascade: primary -> fallback model -> baseline checklist."""
         # Baseline-only execution
-        if not model_name:
+        if not model_name or model_name in ("baseline", "baseline-checklist"):
             return self.baseline.evaluate(packet)
 
         # Prepare prompt

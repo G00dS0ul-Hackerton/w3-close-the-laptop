@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
+import '../dialogs/select_model_dialog.dart';
 import '../dialogs/select_repo_dialog.dart';
 import '../models/session_models.dart';
 import '../services/api_client.dart';
@@ -43,6 +44,8 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
   bool _isEnded = false;
   bool _isNoteUserEdited = false;
   String? _activeEngineTier;
+  String _selectedModel = 'gemma3:4b';
+  List<ModelOption> _availableModels = [];
   String _quietStatus = 'Ready for checkpoint';
   String _restartNote =
       'Open the dashboard at 390px and check mobile navigation. The login redirect change has sample auth-test evidence.';
@@ -81,6 +84,16 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
         _isEngineOffline = false;
         _quietStatus = _isCleanWorkingTree ? 'Working tree clean' : 'Ready for checkpoint';
       });
+
+      // Query available review models from engine
+      try {
+        final models = await widget.apiClient!.getAvailableModels();
+        if (mounted && models.isNotEmpty) {
+          setState(() {
+            _availableModels = models;
+          });
+        }
+      } catch (_) {}
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -93,6 +106,57 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
       });
     } catch (_) {
       // Graceful fallback to initial sample data
+    }
+  }
+
+  Future<void> _handleSelectModel() async {
+    if (_availableModels.isEmpty && widget.apiClient != null) {
+      try {
+        final fetched = await widget.apiClient!.getAvailableModels();
+        if (mounted && fetched.isNotEmpty) {
+          _availableModels = fetched;
+        }
+      } catch (_) {}
+    }
+
+    final modelList = _availableModels.isNotEmpty
+        ? _availableModels
+        : [
+            const ModelOption(
+              id: 'gemma3:4b',
+              name: 'gemma3:4b',
+              displayName: 'Gemma 3 (4B)',
+              parameterSize: '4.3B',
+              family: 'gemma3',
+              isRecommended: true,
+            ),
+            const ModelOption(
+              id: 'qwen2.5-coder:3b',
+              name: 'qwen2.5-coder:3b',
+              displayName: 'Qwen 2.5 Coder (3B)',
+              parameterSize: '3.1B',
+              family: 'qwen2',
+            ),
+            const ModelOption(
+              id: 'baseline-checklist',
+              name: 'baseline-checklist',
+              displayName: 'Baseline Checklist (Offline Floor)',
+              isBaseline: true,
+            ),
+          ];
+
+    if (!mounted) return;
+    final chosen = await SelectModelDialog.show(
+      context,
+      models: modelList,
+      currentModelId: _selectedModel,
+      isOllamaOffline: _isEngineOffline,
+    );
+
+    if (chosen != null && mounted) {
+      setState(() {
+        _selectedModel = chosen;
+      });
     }
   }
 
@@ -226,6 +290,7 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
           criteria: _criteria,
           receipts: _receipts,
           priorFindings: _findings,
+          model: _selectedModel,
         );
 
         if (res != null) {
@@ -623,6 +688,8 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                           isCleanWorkingTree: _isCleanWorkingTree,
                           isEngineOffline: _isEngineOffline,
                           activeEngine: _activeEngineTier,
+                          selectedModel: _selectedModel,
+                          onSelectModel: _handleSelectModel,
                           onRetryConnection: _loadSessionFromEngine,
                           onSelectRepo: _openSelectRepoDialog,
                           onTriggerCheckpoint: _triggerCheckpoint,

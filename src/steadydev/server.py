@@ -48,6 +48,39 @@ class SteadyDevServer(ThreadingHTTPServer):
         self._is_reviewing = False
 
 
+def format_model_display_name(
+    model_name: str, details: dict[str, Any] | None = None
+) -> str:
+    """Format an Ollama model name like 'gemma3:4b' into 'Gemma 3 (4B)'."""
+    if not model_name:
+        return "Unknown"
+    if model_name in ("baseline", "baseline-checklist"):
+        return "Baseline Checklist (Offline Floor)"
+
+    parts = model_name.split(":", 1)
+    base = parts[0]
+    tag = parts[1] if len(parts) > 1 else ""
+
+    if base.startswith("gemma"):
+        version = base[5:]
+        base_str = f"Gemma {version}".strip()
+    elif base.startswith("qwen") and "coder" in base:
+        sub = base.replace("qwen", "").replace("-coder", "").strip()
+        base_str = f"Qwen {sub} Coder".strip()
+    elif base.startswith("qwen"):
+        sub = base.replace("qwen", "").strip()
+        base_str = f"Qwen {sub}".strip()
+    else:
+        base_str = base.replace("-", " ").title()
+
+    param_size = (
+        tag.upper() if tag else (details.get("parameter_size") if details else "")
+    )
+    if param_size:
+        return f"{base_str} ({param_size})"
+    return base_str
+
+
 class SteadyDevHandler(BaseHTTPRequestHandler):
     """Request handler enforcing token auth, repo boundaries, and clean error codes."""
 
@@ -148,8 +181,76 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     "status": "ok",
                     "version": "0.1.0",
                     "model_status": "ready" if ollama_ready else "unavailable",
-                    "active_model": "qwen2.5-coder:3b",
+                    "active_model": "gemma3:4b",
                     "running_models": running,
+                },
+            )
+        elif self.path == "/api/models":
+            ollama_ready = False
+            raw_models: list[dict[str, Any]] = []
+            running_names: set[str] = set()
+            try:
+                raw_models = self.server.ollama_client.list_models()
+                running = self.server.ollama_client.get_running_models()
+                running_names = {r.get("name", "") for r in running}
+                ollama_ready = True
+            except (OllamaClientError, OSError):
+                raw_models = []
+                running_names = set()
+
+            enriched_models: list[dict[str, Any]] = []
+            for m in raw_models:
+                m_name = m.get("name", "")
+                if not m_name:
+                    continue
+                details = m.get("details") or {}
+                param_size = str(details.get("parameter_size") or "")
+                family = str(details.get("family") or "")
+                quant = str(details.get("quantization_level") or "")
+                size_b = m.get("size") or 0
+                is_running = m_name in running_names
+                is_rec = m_name.startswith("gemma3:4b")
+
+                enriched_models.append(
+                    {
+                        "id": m_name,
+                        "name": m_name,
+                        "display_name": format_model_display_name(m_name, details),
+                        "family": family,
+                        "parameter_size": param_size,
+                        "quantization": quant,
+                        "size_bytes": size_b,
+                        "is_running": is_running,
+                        "is_recommended": is_rec,
+                        "is_baseline": False,
+                    }
+                )
+
+            # Baseline checklist floor is always available
+            enriched_models.append(
+                {
+                    "id": "baseline-checklist",
+                    "name": "baseline-checklist",
+                    "display_name": "Baseline Checklist (Offline Floor)",
+                    "family": "deterministic",
+                    "parameter_size": "0B",
+                    "quantization": "N/A",
+                    "size_bytes": 0,
+                    "is_running": True,
+                    "is_recommended": False,
+                    "is_baseline": True,
+                }
+            )
+
+            self.send_json(
+                200,
+                {
+                    "status": "ok",
+                    "ollama_status": "ready" if ollama_ready else "unavailable",
+                    "default_model": "gemma3:4b"
+                    if ollama_ready
+                    else "baseline-checklist",
+                    "models": enriched_models,
                 },
             )
         elif self.path.startswith("/api/session"):

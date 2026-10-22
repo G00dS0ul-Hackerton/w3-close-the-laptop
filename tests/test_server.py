@@ -88,7 +88,7 @@ def test_health_endpoint(running_server: dict):
     data = resp.json()
     assert data["status"] == "ok"
     assert "model_status" in data
-    assert data["active_model"] == "qwen2.5-coder:3b"
+    assert data["active_model"] == "gemma3:4b"
 
 
 def test_snapshot_endpoint(running_server: dict):
@@ -383,3 +383,47 @@ def test_reset_session_endpoint(running_server: dict, temp_git_repo: Path):
     assert len(data["findings"]) == 0
     assert len(data["check_receipts"]) == 0
     assert "git_status" in data
+
+
+def test_format_model_display_name() -> None:
+    from steadydev.server import format_model_display_name
+
+    assert format_model_display_name("gemma3:4b") == "Gemma 3 (4B)"
+    assert format_model_display_name("qwen2.5-coder:3b") == "Qwen 2.5 Coder (3B)"
+    assert format_model_display_name("qwen2.5:7b") == "Qwen 2.5 (7B)"
+    assert (
+        format_model_display_name("baseline-checklist")
+        == "Baseline Checklist (Offline Floor)"
+    )
+    assert format_model_display_name("baseline") == "Baseline Checklist (Offline Floor)"
+    assert format_model_display_name("") == "Unknown"
+
+
+def test_get_models_endpoint_success(running_server: dict) -> None:
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+
+    resp = httpx.get(
+        f"{base_url}/api/models",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert "ollama_status" in data
+    assert "default_model" in data
+    assert isinstance(data["models"], list)
+
+    # Always includes baseline floor
+    baseline_entry = next(
+        (m for m in data["models"] if m["id"] == "baseline-checklist"), None
+    )
+    assert baseline_entry is not None
+    assert baseline_entry["is_baseline"] is True
+    assert baseline_entry["display_name"] == "Baseline Checklist (Offline Floor)"
+
+
+def test_get_models_endpoint_unauthorized(running_server: dict) -> None:
+    base_url = running_server["base_url"]
+    resp = httpx.get(f"{base_url}/api/models")
+    assert resp.status_code == 401

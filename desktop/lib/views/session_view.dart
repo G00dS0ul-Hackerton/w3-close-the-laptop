@@ -26,6 +26,8 @@ class SessionView extends StatelessWidget {
   final Function(FindingItem finding, FindingLifecycle status, String? reason) onUpdateFindingStatus;
   final VoidCallback? onRetryConnection;
   final VoidCallback? onSelectRepo;
+  final String? selectedModel;
+  final VoidCallback? onSelectModel;
 
   const SessionView({
     super.key,
@@ -48,6 +50,8 @@ class SessionView extends StatelessWidget {
     required this.onUpdateFindingStatus,
     this.onRetryConnection,
     this.onSelectRepo,
+    this.selectedModel,
+    this.onSelectModel,
   });
 
   Widget _buildBadge(BuildContext context, FindingItem f) {
@@ -92,7 +96,48 @@ class SessionView extends StatelessWidget {
     );
   }
 
-  Widget _buildEngineBadge(BuildContext context, String engine) {
+  String _formatModelTag(String tag) {
+    if (tag.isEmpty) return 'Unknown';
+    if (tag.contains('baseline-checklist') || tag == 'baseline') {
+      return 'Baseline Checklist';
+    }
+
+    // Strip fallback suffix if present
+    String cleanTag = tag;
+    if (cleanTag.contains('-fallback-baseline')) {
+      cleanTag = cleanTag.replaceAll('-fallback-baseline', '');
+    } else if (cleanTag.contains('-fallback')) {
+      cleanTag = cleanTag.replaceAll('-fallback', '');
+    }
+
+    final parts = cleanTag.split(':');
+    final base = parts[0];
+    final paramTag = parts.length > 1 ? parts[1].toUpperCase() : '';
+
+    String baseStr;
+    if (base.startsWith('gemma')) {
+      baseStr = 'Gemma ${base.substring(5)}'.trim();
+    } else if (base.startsWith('qwen') && base.contains('coder')) {
+      final sub = base.replaceAll('qwen', '').replaceAll('-coder', '').trim();
+      baseStr = 'Qwen $sub Coder'.trim();
+    } else if (base.startsWith('qwen')) {
+      final sub = base.replaceAll('qwen', '').trim();
+      baseStr = 'Qwen $sub'.trim();
+    } else {
+      baseStr = base.replaceAll('-', ' ');
+      baseStr = baseStr
+          .split(' ')
+          .map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : '')
+          .join(' ');
+    }
+
+    if (paramTag.isNotEmpty) {
+      return '$baseStr ($paramTag)';
+    }
+    return baseStr;
+  }
+
+  Widget _buildEngineBadge(BuildContext context, String engine, {VoidCallback? onTap}) {
     final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ?? SteadyDevThemeTokens.light;
     final lower = engine.toLowerCase();
 
@@ -101,29 +146,30 @@ class SessionView extends StatelessWidget {
     IconData icon;
     String label;
 
-    if (lower.contains('baseline')) {
+    final isBaseline = lower.contains('baseline');
+    final isFallback = lower.contains('fallback') ||
+        (lower.contains('qwen') && (selectedModel == null || !selectedModel!.contains('qwen')));
+
+    if (isBaseline) {
       bg = tokens.subtleSurface;
       fg = tokens.secondaryText;
       icon = Icons.checklist;
       label = 'Baseline Checklist';
-    } else if (lower.contains('gemma')) {
-      bg = tokens.softBrandSurface;
-      fg = tokens.brandAction;
-      icon = Icons.auto_awesome;
-      label = 'Gemma 3 (4B)';
-    } else if (lower.contains('qwen')) {
+    } else if (isFallback) {
       bg = tokens.badgeJudgmentBg;
       fg = tokens.badgeJudgmentText;
       icon = Icons.alt_route;
-      label = 'Qwen 2.5 Coder (Fallback)';
+      label = lower.contains('coder')
+          ? 'Qwen 2.5 Coder (Fallback)'
+          : '${_formatModelTag(engine)} (Fallback)';
     } else {
-      bg = tokens.subtleSurface;
-      fg = tokens.secondaryText;
-      icon = Icons.checklist;
-      label = engine;
+      bg = tokens.softBrandSurface;
+      fg = tokens.brandAction;
+      icon = Icons.auto_awesome;
+      label = _formatModelTag(engine);
     }
 
-    return Container(
+    final badgeContent = Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -147,9 +193,25 @@ class SessionView extends StatelessWidget {
               ),
             ),
           ),
+          if (onTap != null) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.arrow_drop_down, size: 14, color: fg),
+          ],
         ],
       ),
     );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Tooltip(
+          message: 'Click to select review model',
+          child: badgeContent,
+        ),
+      );
+    }
+    return badgeContent;
   }
 
   Widget _buildFindingCard(BuildContext context, FindingItem f) {
@@ -674,8 +736,12 @@ class SessionView extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 12, color: tokens.secondaryText),
                         ),
-                        if (activeEngine != null && !isReviewing)
-                          _buildEngineBadge(context, activeEngine!),
+                        if (!isReviewing)
+                          _buildEngineBadge(
+                            context,
+                            activeEngine ?? selectedModel ?? 'gemma3:4b',
+                            onTap: onSelectModel,
+                          ),
                       ],
                     ),
                   ),
@@ -712,10 +778,21 @@ class SessionView extends StatelessWidget {
                       onPressed: isReviewing ? null : onTriggerCheckpoint,
                     ),
                   ),
-                  IconButton(
-                    icon: Icon(isPaused ? Icons.play_arrow : Icons.pause, size: 20),
-                    tooltip: isPaused ? 'Resume quiet review' : 'Pause quiet review',
-                    onPressed: onTogglePause,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (onSelectModel != null)
+                        IconButton(
+                          icon: const Icon(Icons.tune, size: 18),
+                          tooltip: 'Select review model',
+                          onPressed: isReviewing ? null : onSelectModel,
+                        ),
+                      IconButton(
+                        icon: Icon(isPaused ? Icons.play_arrow : Icons.pause, size: 20),
+                        tooltip: isPaused ? 'Resume quiet review' : 'Pause quiet review',
+                        onPressed: onTogglePause,
+                      ),
+                    ],
                   ),
                 ],
               ),

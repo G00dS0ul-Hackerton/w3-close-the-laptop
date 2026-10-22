@@ -48,6 +48,16 @@ def test_reviewer_baseline_execution(sample_clean_packet: ReviewPacket) -> None:
     assert result.status == "clean"
     assert result.model_name == "baseline-checklist"
 
+    result_explicit = reviewer.review(
+        sample_clean_packet, model_name="baseline-checklist"
+    )
+    assert result_explicit.status == "clean"
+    assert result_explicit.model_name == "baseline-checklist"
+
+    result_slug = reviewer.review(sample_clean_packet, model_name="baseline")
+    assert result_slug.status == "clean"
+    assert result_slug.model_name == "baseline-checklist"
+
 
 def test_reviewer_model_success(sample_clean_packet: ReviewPacket) -> None:
     mock_client = MagicMock(spec=OllamaClient)

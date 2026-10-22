@@ -165,6 +165,19 @@ class SteadyDevApiClient {
     }
   }
 
+  /// Query available local Ollama models and offline baseline floor.
+  Future<List<ModelOption>> getAvailableModels() async {
+    final res = await _safeGet(Uri.parse('$baseUrl/api/models'));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final rawList = data['models'] as List<dynamic>? ?? [];
+      return rawList
+          .map((m) => ModelOption.fromJson(m as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
   /// Execute AI code review against git diff and check receipts.
   Future<ReviewResultData?> requestReview({
     required String repoPath,
@@ -173,17 +186,23 @@ class SteadyDevApiClient {
     required List<SessionCheckReceipt> receipts,
     List<FindingItem>? priorFindings,
     List<String>? deferrals,
+    String? model,
   }) async {
     final requestId = ++_latestRequestId;
 
-    final body = jsonEncode({
+    final Map<String, dynamic> bodyMap = {
       'repo_path': repoPath,
       'session_intention': intention,
       'acceptance_criteria': criteria,
       'check_receipts': receipts.map((r) => r.toJson()).toList(),
       'prior_findings': (priorFindings ?? []).map((f) => f.toJson()).toList(),
       'explicit_deferrals': deferrals ?? [],
-    });
+    };
+    if (model != null && model.isNotEmpty) {
+      bodyMap['model'] = model;
+    }
+
+    final body = jsonEncode(bodyMap);
 
     final res = await _safePost(
       Uri.parse('$baseUrl/api/review'),

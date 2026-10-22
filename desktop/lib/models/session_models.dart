@@ -167,6 +167,60 @@ class SessionCheckReceipt {
       };
 }
 
+class ModelOption {
+  final String id;
+  final String name;
+  final String displayName;
+  final String family;
+  final String parameterSize;
+  final String quantization;
+  final int sizeBytes;
+  final bool isRunning;
+  final bool isRecommended;
+  final bool isBaseline;
+
+  const ModelOption({
+    required this.id,
+    required this.name,
+    required this.displayName,
+    this.family = '',
+    this.parameterSize = '',
+    this.quantization = '',
+    this.sizeBytes = 0,
+    this.isRunning = false,
+    this.isRecommended = false,
+    this.isBaseline = false,
+  });
+
+  factory ModelOption.fromJson(Map<String, dynamic> json) {
+    return ModelOption(
+      id: json['id'] as String? ?? json['name'] as String? ?? '',
+      name: json['name'] as String? ?? json['id'] as String? ?? '',
+      displayName: json['display_name'] as String? ?? json['name'] as String? ?? 'Unknown',
+      family: json['family'] as String? ?? '',
+      parameterSize: json['parameter_size'] as String? ?? '',
+      quantization: json['quantization'] as String? ?? '',
+      sizeBytes: (json['size_bytes'] as num? ?? 0).toInt(),
+      isRunning: json['is_running'] as bool? ?? false,
+      isRecommended: json['is_recommended'] as bool? ?? false,
+      isBaseline: json['is_baseline'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'display_name': displayName,
+        'family': family,
+        'parameter_size': parameterSize,
+        'quantization': quantization,
+        'size_bytes': sizeBytes,
+        'is_running': isRunning,
+        'is_recommended': isRecommended,
+        'is_baseline': isBaseline,
+      };
+}
+
 class ReviewResultData {
   final String packetId;
   final String modelTag;
@@ -176,6 +230,7 @@ class ReviewResultData {
   final String closingSummary;
   final String restartNote;
   final List<String> retiredFindingIds;
+  final String? error;
 
   ReviewResultData({
     required this.packetId,
@@ -186,7 +241,12 @@ class ReviewResultData {
     required this.closingSummary,
     required this.restartNote,
     required this.retiredFindingIds,
+    this.error,
   });
+
+  bool get isFallback =>
+      status == 'fallback_baseline' ||
+      (error != null && error!.toLowerCase().contains('fell back'));
 
   factory ReviewResultData.fromJson(Map<String, dynamic> json) {
     final rawFindings = json['findings'] as List<dynamic>? ?? [];
@@ -203,6 +263,7 @@ class ReviewResultData {
       retiredFindingIds: (json['retired_finding_ids'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
+      error: json['error'] as String?,
     );
   }
 }
