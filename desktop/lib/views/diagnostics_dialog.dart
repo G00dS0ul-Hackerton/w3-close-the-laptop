@@ -1,0 +1,566 @@
+import 'package:flutter/material.dart';
+
+import '../models/session_models.dart';
+import '../services/api_client.dart';
+import '../theme/tokens.dart';
+import 'telemetry_settings_dialog.dart';
+
+class DiagnosticsDialog extends StatefulWidget {
+  final SteadyDevApiClient? apiClient;
+  final ReviewDiagnosticsData? initialData;
+
+  const DiagnosticsDialog({
+    super.key,
+    this.apiClient,
+    this.initialData,
+  });
+
+  static Future<void> show(
+    BuildContext context, {
+    SteadyDevApiClient? apiClient,
+    ReviewDiagnosticsData? initialData,
+  }) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => DiagnosticsDialog(
+        apiClient: apiClient,
+        initialData: initialData,
+      ),
+    );
+  }
+
+  @override
+  State<DiagnosticsDialog> createState() => _DiagnosticsDialogState();
+}
+
+class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
+  ReviewDiagnosticsData? _diagnostics;
+  TelemetryConfigData? _telemetryConfig;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _diagnostics = widget.initialData;
+    _fetchDiagnostics();
+  }
+
+  Future<void> _fetchDiagnostics() async {
+    if (widget.apiClient == null) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final diagFuture = widget.apiClient!.getReviewDiagnostics();
+      final telemFuture = widget.apiClient!.getTelemetryConfig();
+      final diag = await diagFuture;
+      final telem = await telemFuture;
+      if (mounted) {
+        setState(() {
+          _diagnostics = diag ?? _diagnostics;
+          _telemetryConfig = telem;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString();
+        });
+      }
+    }
+  }
+
+  String _formatModelTag(String raw) {
+    if (raw.contains('gemma')) return 'Gemma 3 4B';
+    if (raw.contains('qwen')) return 'Qwen 2.5 Coder 3B';
+    if (raw.contains('baseline')) return 'Baseline Checklist';
+    return raw;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ??
+        SteadyDevThemeTokens.light;
+
+    return AlertDialog(
+      backgroundColor: tokens.panel,
+      titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Icon(Icons.analytics_outlined, color: tokens.brandAction, size: 22),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    'Review Diagnostics',
+                    style: TextStyle(
+                      color: tokens.primaryText,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 20),
+            tooltip: 'Refresh diagnostics',
+            onPressed: _isLoading ? null : _fetchDiagnostics,
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 620,
+        child: _isLoading && _diagnostics == null
+            ? const SizedBox(
+                height: 200,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : _errorMessage != null && _diagnostics == null
+                ? SizedBox(
+                    height: 150,
+                    child: Center(
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(color: tokens.badgeJudgmentText),
+                      ),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildStatusCard(context, tokens),
+                        const SizedBox(height: 16),
+                        _buildChunkMatrix(context, tokens),
+                        const SizedBox(height: 16),
+                        _buildTelemetryExportCard(context, tokens),
+                        const SizedBox(height: 16),
+                        _buildOfflineFooter(context, tokens),
+                      ],
+                    ),
+                  ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusCard(BuildContext context, SteadyDevThemeTokens tokens) {
+    final diag = _diagnostics;
+    final phase = diag?.phase ?? 'idle';
+    final elapsedS = (diag?.elapsedMs ?? 0.0) / 1000.0;
+    final deadlineS = diag?.deadlineSeconds ?? 180.0;
+    final deadlineExceeded = diag?.deadlineExceeded ?? false;
+    final progressFraction = (elapsedS / deadlineS).clamp(0.0, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: tokens.subtleSurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: tokens.dividerLine),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Wrap(
+                spacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    'Lifecycle Phase:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: tokens.secondaryText,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: phase == 'completed'
+                          ? tokens.badgeConfirmedBg
+                          : (deadlineExceeded || phase == 'failed' || phase == 'timed_out'
+                              ? tokens.badgeJudgmentBg
+                              : tokens.brandAction.withValues(alpha: 0.15)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      phase.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: phase == 'completed'
+                            ? tokens.badgeConfirmedText
+                            : (deadlineExceeded || phase == 'failed' || phase == 'timed_out'
+                                ? tokens.badgeJudgmentText
+                                : tokens.brandAction),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (diag?.reviewId != null && diag!.reviewId != 'idle')
+                Flexible(
+                  child: Text(
+                    'ID: ${diag.reviewId}',
+                    style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  'Workflow Deadline (${elapsedS.toStringAsFixed(1)}s / ${deadlineS.toStringAsFixed(0)}s)',
+                  style: TextStyle(fontSize: 12, color: tokens.primaryText),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                deadlineExceeded ? 'EXCEEDED' : '${(deadlineS - elapsedS).clamp(0.0, deadlineS).toStringAsFixed(1)}s remaining',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: deadlineExceeded ? tokens.badgeJudgmentText : tokens.secondaryText,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: progressFraction,
+              minHeight: 6,
+              backgroundColor: tokens.dividerLine,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                deadlineExceeded ? tokens.badgeJudgmentText : tokens.brandAction,
+              ),
+            ),
+          ),
+          if (diag?.error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Notice: ${diag!.error!}',
+              style: TextStyle(fontSize: 11, color: tokens.badgeJudgmentText, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChunkMatrix(BuildContext context, SteadyDevThemeTokens tokens) {
+    final chunks = _diagnostics?.chunkDiagnostics ?? [];
+    if (chunks.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: tokens.subtleSurface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: tokens.dividerLine),
+        ),
+        child: Text(
+          'No chunk telemetry recorded for this review yet.',
+          style: TextStyle(fontSize: 12, color: tokens.secondaryText),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Chunk Coverage & Model Attempts (${chunks.length} chunks)',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: tokens.primaryText,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...chunks.map((cp) => _buildChunkCard(context, cp, tokens)),
+      ],
+    );
+  }
+
+  Widget _buildChunkCard(
+    BuildContext context,
+    ChunkProvenanceData cp,
+    SteadyDevThemeTokens tokens,
+  ) {
+    final isBaseline = cp.resolvedEngine.contains('baseline');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.subtleSurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: tokens.dividerLine),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'Chunk ${cp.chunkIndex} of ${cp.totalChunks}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: tokens.primaryText,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isBaseline ? tokens.badgeJudgmentBg : tokens.badgeConfirmedBg,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        isBaseline ? 'Baseline Floor' : _formatModelTag(cp.resolvedEngine),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isBaseline ? tokens.badgeJudgmentText : tokens.badgeConfirmedText,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${cp.findingsCount} findings',
+                style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Files: ${cp.filePaths.join(', ')}',
+            style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+          ),
+          if (cp.fallbackReason != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Fallback Trigger: ${cp.fallbackReason}',
+              style: TextStyle(
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+                color: tokens.badgeJudgmentText,
+              ),
+            ),
+          ],
+          if (cp.attempts.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Model Invocations:',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: tokens.secondaryText),
+            ),
+            const SizedBox(height: 4),
+            ...cp.attempts.map((att) => Padding(
+                  padding: const EdgeInsets.only(left: 6, bottom: 2),
+                  child: Row(
+                    children: [
+                      Icon(
+                        att.outcome == 'success' ? Icons.check_circle_outline : Icons.error_outline,
+                        size: 13,
+                        color: att.outcome == 'success' ? tokens.brandAction : tokens.badgeJudgmentText,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '${att.model}: ${att.outcome} · ${(att.durationMs / 1000.0).toStringAsFixed(1)}s · ${att.inputTokens ?? 0} in / ${att.outputTokens ?? 0} out${att.doneReason != null ? ' · reason=${att.doneReason}' : ''}',
+                          style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTelemetryExportCard(BuildContext context, SteadyDevThemeTokens tokens) {
+    final telem = _telemetryConfig;
+    final state = telem?.exportState ?? 'disabled';
+    final isDelivered = telem?.verifiedDelivery == true;
+    final traceId = telem?.lastTraceId;
+    final traceUrl = telem?.traceUrl;
+
+    Color badgeColor;
+    String badgeText;
+    switch (state) {
+      case 'verified_delivered':
+        badgeColor = tokens.badgeConfirmedText;
+        badgeText = 'VERIFIED DELIVERED';
+        break;
+      case 'staged_local':
+      case 'flushing':
+        badgeColor = tokens.badgeUnverifiedText;
+        badgeText = 'STAGED LOCAL';
+        break;
+      case 'delivery_failed':
+        badgeColor = tokens.badgeJudgmentText;
+        badgeText = 'DELIVERY FAILED';
+        break;
+      default:
+        badgeColor = tokens.secondaryText;
+        badgeText = 'DISABLED (LOCAL ONLY)';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: tokens.dividerLine),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_sync_outlined, size: 16, color: tokens.brandAction),
+                    Text(
+                      'Sentry Telemetry:',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: tokens.primaryText,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: badgeColor),
+                      ),
+                      child: Text(
+                        badgeText,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: badgeColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (widget.apiClient != null)
+                TextButton(
+                  onPressed: () async {
+                    await TelemetrySettingsDialog.show(
+                      context,
+                      apiClient: widget.apiClient!,
+                      initialConfig: _telemetryConfig,
+                    );
+                    _fetchDiagnostics();
+                  },
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: Text(
+                    'Configure',
+                    style: TextStyle(fontSize: 11, color: tokens.brandAction),
+                  ),
+                ),
+            ],
+          ),
+          if (traceId != null && traceId.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Trace ID: $traceId',
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: tokens.secondaryText,
+              ),
+            ),
+          ],
+          if (isDelivered && traceUrl != null && traceUrl.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            SelectableText(
+              'Trace URL: $traceUrl',
+              style: TextStyle(
+                fontSize: 11,
+                color: tokens.brandAction,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOfflineFooter(BuildContext context, SteadyDevThemeTokens tokens) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: tokens.panel,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: tokens.dividerLine),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.shield_outlined, size: 16, color: tokens.secondaryText),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '100% Local Diagnostics · Zero Network Egress · Independent of Sentry',
+              style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

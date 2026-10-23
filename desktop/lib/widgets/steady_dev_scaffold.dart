@@ -10,7 +10,9 @@ import '../theme/theme_manager.dart';
 import '../theme/tokens.dart';
 import '../views/audit_view.dart';
 import '../views/closing_view.dart';
+import '../views/diagnostics_dialog.dart';
 import '../views/session_view.dart';
+import '../views/telemetry_settings_dialog.dart';
 
 class SteadyDevScaffold extends StatefulWidget {
   final ThemeManager themeManager;
@@ -45,6 +47,7 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
   bool _isEnded = false;
   bool _isNoteUserEdited = false;
   String? _activeEngineTier;
+  List<ChunkProvenanceData>? _chunkProvenance;
   String _selectedModel = 'gemma3:4b';
   List<ModelOption> _availableModels = [];
   String _quietStatus = 'Ready for checkpoint';
@@ -347,8 +350,13 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
             }
 
             _findings = mergedFindings;
-            _quietStatus = 'Checkpoint complete';
+            if (res.unchangedSnapshot) {
+              _quietStatus = 'Snapshot unchanged · Displaying current findings';
+            } else {
+              _quietStatus = 'Checkpoint complete';
+            }
             _activeEngineTier = res.modelTag;
+            _chunkProvenance = res.chunkProvenance;
             if (!_isNoteUserEdited && res.restartNote.isNotEmpty) {
               _restartNote = res.restartNote;
             }
@@ -397,6 +405,18 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
       _isReviewing = false;
       _quietStatus = 'Review stopped · Memory unloaded';
     });
+  }
+
+  Future<void> _handleTogglePause() async {
+    final nextPaused = !_isPaused;
+    setState(() => _isPaused = nextPaused);
+    try {
+      if (nextPaused) {
+        await widget.apiClient?.pauseSession(_repoPath);
+      } else {
+        await widget.apiClient?.resumeSession(_repoPath);
+      }
+    } catch (_) {}
   }
 
   void _updateFindingStatus(FindingItem finding, FindingLifecycle status, String? reason) {
@@ -459,6 +479,7 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
           _isEnded = false;
           _isPaused = false;
           _activeEngineTier = null;
+          _chunkProvenance = null;
           _isCleanWorkingTree = freshSession.gitStatus?.state == 'clean';
           _quietStatus = 'Fresh session started · Ready for checkpoint';
         });
@@ -633,8 +654,83 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  InkWell(
+                                    onTap: () => DiagnosticsDialog.show(
+                                      context,
+                                      apiClient: widget.apiClient,
+                                    ),
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: tokens.subtleSurface,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border:
+                                            Border.all(color: tokens.dividerLine),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.analytics_outlined,
+                                              size: 14, color: tokens.brandAction),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Diagnostics',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: tokens.primaryText,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  if (widget.apiClient != null) ...[
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () => TelemetrySettingsDialog.show(
+                                        context,
+                                        apiClient: widget.apiClient!,
+                                      ),
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: tokens.subtleSurface,
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                          border: Border.all(
+                                              color: tokens.dividerLine),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.cloud_upload_outlined,
+                                                size: 14,
+                                                color: tokens.brandAction),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Telemetry',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: tokens.primaryText,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(width: 8),
                                   if (showBadges) ...[
-                                    Text('Theme', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
+                                    Text('Theme',
+                                        style: TextStyle(
+                                            fontSize: 13,
+                                            color: tokens.secondaryText)),
                                     const SizedBox(width: 8),
                                   ],
                                   Container(
@@ -727,12 +823,13 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                           isCleanWorkingTree: _isCleanWorkingTree,
                           isEngineOffline: _isEngineOffline,
                           activeEngine: _activeEngineTier,
+                          chunkProvenance: _chunkProvenance,
                           selectedModel: _selectedModel,
                           onSelectModel: _handleSelectModel,
                           onRetryConnection: _loadSessionFromEngine,
                           onSelectRepo: _openSelectRepoDialog,
                           onTriggerCheckpoint: _triggerCheckpoint,
-                          onTogglePause: () => setState(() => _isPaused = !_isPaused),
+                          onTogglePause: _handleTogglePause,
                           onCancelReview: _handleCancelReview,
                           onNavigateToClosing: () => setState(() => _activeView = 'closing'),
                           onUpdateIntention: (val) {

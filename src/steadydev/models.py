@@ -90,6 +90,10 @@ class Finding(BaseModel):
     status: FindingStatus = Field(
         default=FindingStatus.OPEN, description="Lifecycle status"
     )
+    engine: str = Field(
+        default="baseline-checklist",
+        description="Engine that emitted this finding (e.g. gemma3:4b, qwen2.5-coder:3b, baseline-checklist)",
+    )
     validation_error: str | None = Field(
         default=None, description="Locator validation failure reason if any"
     )
@@ -167,6 +171,49 @@ class ReviewPacket(BaseModel):
     )
 
 
+class ModelAttempt(BaseModel):
+    model: str = Field(..., description="Model name attempted")
+    outcome: str = Field(
+        ...,
+        description="success, timeout, schema_invalid, connection_error, cancelled",
+    )
+    duration_ms: float = Field(
+        default=0.0, description="Duration of this attempt in milliseconds"
+    )
+    input_tokens: int | None = Field(
+        default=None, description="Prompt tokens if captured"
+    )
+    output_tokens: int | None = Field(
+        default=None, description="Generated tokens if captured"
+    )
+    done_reason: str | None = Field(
+        default=None, description="Ollama done_reason, e.g. stop or length"
+    )
+    error_detail: str | None = Field(
+        default=None, description="Sanitized error description"
+    )
+
+
+class ChunkProvenance(BaseModel):
+    chunk_index: int = Field(..., description="1-based chunk index")
+    total_chunks: int = Field(..., description="Total chunks in this review")
+    file_paths: list[str] = Field(
+        default_factory=list, description="Files included in this chunk"
+    )
+    attempts: list[ModelAttempt] = Field(
+        default_factory=list, description="Model attempts for this chunk"
+    )
+    resolved_engine: str = Field(
+        ..., description="Engine that provided final findings for this chunk"
+    )
+    fallback_reason: str | None = Field(
+        default=None, description="Why chunk fell back (e.g. timeout_fallback)"
+    )
+    findings_count: int = Field(
+        default=0, description="Number of findings produced by this chunk"
+    )
+
+
 class ReviewResult(BaseModel):
     packet_id: str = Field(..., description="Associated packet identifier")
     status: str = Field(
@@ -200,6 +247,48 @@ class ReviewResult(BaseModel):
     raw_json: dict[str, Any] | None = Field(
         default=None, description="Parsed raw JSON dictionary before post-processing"
     )
+    chunk_provenance: list[ChunkProvenance] = Field(
+        default_factory=list,
+        description="Per-chunk model attempt and resolution provenance",
+    )
     error: str | None = Field(
         default=None, description="Error message if review failed or fell back"
     )
+
+
+class ReviewLifecycleRecord(BaseModel):
+    """Real-time and historical review diagnostics for local UI."""
+
+    review_id: str = Field(..., description="Unique review run identifier")
+    phase: str = Field(
+        default="idle",
+        description="idle, starting, fingerprinting, auditing, synthesizing, completed, cancelled, timed_out, stale_snapshot",
+    )
+    is_reviewing: bool = Field(
+        default=False, description="True while actively executing"
+    )
+    repo_name: str = Field(default="", description="Sanitized repository name")
+    snapshot_hash: str | None = Field(default=None, description="Composite fingerprint")
+    total_files: int = Field(default=0, description="Total changed files count")
+    total_chunks: int = Field(default=0, description="Total chunks in this review")
+    current_chunk: int = Field(default=0, description="Active chunk index")
+    current_files: list[str] = Field(
+        default_factory=list, description="Files in active chunk"
+    )
+    chunk_diagnostics: list[ChunkProvenance] = Field(
+        default_factory=list,
+        description="Per-chunk attempt history and provenance",
+    )
+    elapsed_ms: float = Field(
+        default=0.0, description="Elapsed wall clock milliseconds"
+    )
+    deadline_seconds: float = Field(
+        default=180.0, description="Workflow timeout deadline"
+    )
+    deadline_exceeded: bool = Field(
+        default=False, description="Whether deadline was hit"
+    )
+    status: str = Field(default="idle", description="Final review status if completed")
+    error: str | None = Field(default=None, description="Clean error summary if failed")
+    created_at: str = Field(default="", description="ISO timestamp UTC")
+    updated_at: str = Field(default="", description="ISO timestamp UTC")

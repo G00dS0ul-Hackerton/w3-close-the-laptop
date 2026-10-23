@@ -19,6 +19,7 @@ class SessionView extends StatelessWidget {
   final bool isCleanWorkingTree;
   final bool isEngineOffline;
   final String? activeEngine;
+  final List<ChunkProvenanceData>? chunkProvenance;
   final VoidCallback onTriggerCheckpoint;
   final VoidCallback onTogglePause;
   final VoidCallback onNavigateToClosing;
@@ -44,6 +45,7 @@ class SessionView extends StatelessWidget {
     this.isCleanWorkingTree = false,
     this.isEngineOffline = false,
     this.activeEngine,
+    this.chunkProvenance,
     required this.onTriggerCheckpoint,
     required this.onTogglePause,
     required this.onNavigateToClosing,
@@ -216,6 +218,32 @@ class SessionView extends StatelessWidget {
     return badgeContent;
   }
 
+  Widget _buildEngineSourceChip(BuildContext context, String engine) {
+    final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ?? SteadyDevThemeTokens.light;
+    final isBaseline = engine.contains('baseline');
+    final label = isBaseline ? 'Baseline floor' : _formatModelTag(engine);
+    final icon = isBaseline ? Icons.checklist : Icons.auto_awesome;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: tokens.subtleSurface,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: tokens.dividerLine),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: tokens.secondaryText),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: tokens.secondaryText, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFindingCard(BuildContext context, FindingItem f) {
     final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ?? SteadyDevThemeTokens.light;
 
@@ -233,7 +261,17 @@ class SessionView extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildBadge(context, f),
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _buildBadge(context, f),
+                    _buildEngineSourceChip(context, f.engine),
+                  ],
+                ),
+              ),
               if (f.lifecycle != FindingLifecycle.open)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -740,6 +778,8 @@ class SessionView extends StatelessWidget {
                             activeEngine ?? selectedModel ?? 'gemma3:4b',
                             onTap: onSelectModel,
                           ),
+                        if (chunkProvenance != null && _isPartialCoverage(chunkProvenance!))
+                          _buildPartialCoverageBanner(context, chunkProvenance!),
                       ],
                     ),
                   ),
@@ -910,6 +950,201 @@ class SessionView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  bool _isPartialCoverage(List<ChunkProvenanceData> provenance) {
+    if (provenance.isEmpty) return false;
+    final hasBaseline =
+        provenance.any((c) => c.resolvedEngine.contains('baseline'));
+    final hasAi =
+        provenance.any((c) => !c.resolvedEngine.contains('baseline'));
+    return hasBaseline && hasAi;
+  }
+
+  Widget _buildPartialCoverageBanner(
+      BuildContext context, List<ChunkProvenanceData> provenance) {
+    final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ??
+        SteadyDevThemeTokens.light;
+    final aiCount =
+        provenance.where((c) => !c.resolvedEngine.contains('baseline')).length;
+    final baselineCount =
+        provenance.where((c) => c.resolvedEngine.contains('baseline')).length;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: tokens.badgeJudgmentBg.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: tokens.badgeJudgmentBg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded,
+                  size: 16, color: tokens.badgeJudgmentText),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Partial AI review coverage',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: tokens.badgeJudgmentText,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$aiCount chunk(s) reviewed by AI, $baselineCount chunk(s) evaluated via baseline floor (180s deadline).',
+            style: TextStyle(fontSize: 11, color: tokens.secondaryText, height: 1.3),
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => _showChunkProvenanceDialog(context, provenance),
+              child: Text(
+                'View chunk breakdown',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: tokens.brandAction),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChunkProvenanceDialog(
+      BuildContext context, List<ChunkProvenanceData> provenance) {
+    final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ??
+        SteadyDevThemeTokens.light;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: tokens.panel,
+        title: Row(
+          children: [
+            Icon(Icons.layers_outlined, color: tokens.brandAction, size: 20),
+            const SizedBox(width: 8),
+            Text('Review Chunk Provenance',
+                style: TextStyle(color: tokens.primaryText, fontSize: 18)),
+          ],
+        ),
+        content: SizedBox(
+          width: 580,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: provenance.map((cp) {
+                final isBaseline = cp.resolvedEngine.contains('baseline');
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: tokens.subtleSurface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: tokens.dividerLine),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Chunk ${cp.chunkIndex} of ${cp.totalChunks}',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: tokens.primaryText),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isBaseline
+                                  ? tokens.badgeJudgmentBg
+                                  : tokens.badgeConfirmedBg,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isBaseline
+                                  ? 'Baseline Floor'
+                                  : _formatModelTag(cp.resolvedEngine),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isBaseline
+                                  ? tokens.badgeJudgmentText
+                                  : tokens.badgeConfirmedText,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Files: ${cp.filePaths.join(', ')}',
+                        style: TextStyle(
+                            fontSize: 12, color: tokens.secondaryText),
+                      ),
+                      if (cp.fallbackReason != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Fallback: ${cp.fallbackReason}',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                              color: tokens.badgeJudgmentText),
+                        ),
+                      ],
+                      if (cp.attempts.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text('Attempts:',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: tokens.secondaryText)),
+                        const SizedBox(height: 4),
+                        ...cp.attempts.map((att) => Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 6, bottom: 2),
+                              child: Text(
+                                '• ${att.model}: ${att.outcome} (${att.durationMs.toStringAsFixed(0)}ms, ${att.inputTokens ?? 0} in / ${att.outputTokens ?? 0} out${att.doneReason != null ? ', ${att.doneReason}' : ''})',
+                                style: TextStyle(
+                                    fontSize: 11, color: tokens.secondaryText),
+                              ),
+                            )),
+                      ],
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 }

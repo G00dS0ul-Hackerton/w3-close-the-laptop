@@ -1,11 +1,13 @@
 """Authenticated loopback HTTP API server and IPC process lifecycle."""
 
 import json
+import os
 import secrets
 import sqlite3
 import sys
 import threading
 import uuid
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -15,14 +17,31 @@ import pydantic
 from steadydev.git_collector import (
     collect_git_snapshot,
     collect_review_packet_from_git,
+    compute_snapshot_fingerprint,
     get_git_status_summary,
     validate_candidate_repo,
     validate_repo_root,
 )
-from steadydev.models import CheckReceipt, Finding
+from steadydev.models import (
+    CheckReceipt,
+    ChunkProvenance,
+    Finding,
+    ReviewLifecycleRecord,
+)
 from steadydev.ollama_client import OllamaClient, OllamaClientError
 from steadydev.reviewer import Reviewer
 from steadydev.store import SessionStore
+from steadydev.telemetry import (
+    get_configured_dsn,
+    get_export_state,
+    get_last_delivery_receipt,
+    get_trace_url,
+    is_telemetry_enabled,
+    mask_dsn,
+    set_telemetry_opt_in,
+    start_review_span,
+    verify_and_flush,
+)
 
 
 class ReviewJob:
@@ -61,6 +80,17 @@ class SteadyDevServer(ThreadingHTTPServer):
         self.ollama_client = ollama_client or OllamaClient()
         self.reviewer = reviewer or Reviewer(ollama_client=self.ollama_client)
         self.store = store or SessionStore(db_path=db_path)
+        stored_opt_in = self.store.get_setting("telemetry_opt_in")
+        stored_dsn = self.store.get_setting("telemetry_dsn")
+        if stored_opt_in == "true":
+            set_telemetry_opt_in(True, dsn=stored_dsn)
+        elif stored_opt_in == "false":
+            set_telemetry_opt_in(False)
+        else:
+            if is_telemetry_enabled():
+                set_telemetry_opt_in(True, dsn=os.environ.get("SENTRY_DSN"))
+            else:
+                set_telemetry_opt_in(False)
         self._repo_lock = threading.Lock()
         self._job_lock = threading.Lock()
         self._active_job: ReviewJob | None = None
@@ -73,6 +103,96 @@ class SteadyDevServer(ThreadingHTTPServer):
             "current_files": "",
             "phase": "idle",
         }
+        self._lifecycle_lock = threading.Lock()
+        now_iso = datetime.now(UTC).isoformat()
+        self._current_lifecycle = ReviewLifecycleRecord(
+            review_id="idle",
+            phase="idle",
+            is_reviewing=False,
+            created_at=now_iso,
+            updated_at=now_iso,
+        )
+        self._last_completed_lifecycle: ReviewLifecycleRecord | None = None
+
+    def start_lifecycle(
+        self,
+        review_id: str,
+        repo_name: str,
+        snapshot_hash: str | None = None,
+        deadline_seconds: float = 180.0,
+    ) -> None:
+        now_iso = datetime.now(UTC).isoformat()
+        with self._lifecycle_lock:
+            self._current_lifecycle = ReviewLifecycleRecord(
+                review_id=review_id,
+                phase="starting",
+                is_reviewing=True,
+                repo_name=repo_name,
+                snapshot_hash=snapshot_hash,
+                deadline_seconds=deadline_seconds,
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+
+    def update_lifecycle_phase(
+        self,
+        phase: str,
+        current_chunk: int = 0,
+        total_chunks: int = 0,
+        current_files: list[str] | None = None,
+        elapsed_ms: float = 0.0,
+        chunk_diagnostics: list[ChunkProvenance] | None = None,
+    ) -> None:
+        now_iso = datetime.now(UTC).isoformat()
+        with self._lifecycle_lock:
+            lc = self._current_lifecycle
+            lc.phase = phase
+            if current_chunk > 0:
+                lc.current_chunk = current_chunk
+            if total_chunks > 0:
+                lc.total_chunks = total_chunks
+            if current_files is not None:
+                lc.current_files = current_files
+            if elapsed_ms > 0:
+                lc.elapsed_ms = elapsed_ms
+            if chunk_diagnostics is not None:
+                lc.chunk_diagnostics = chunk_diagnostics
+            lc.updated_at = now_iso
+
+    def complete_lifecycle(
+        self,
+        status: str,
+        error: str | None = None,
+        chunk_diagnostics: list[ChunkProvenance] | None = None,
+        elapsed_ms: float = 0.0,
+        deadline_exceeded: bool = False,
+    ) -> None:
+        now_iso = datetime.now(UTC).isoformat()
+        with self._lifecycle_lock:
+            lc = self._current_lifecycle
+            lc.is_reviewing = False
+            lc.phase = (
+                "completed"
+                if not error
+                else ("timed_out" if deadline_exceeded else "failed")
+            )
+            lc.status = status
+            lc.error = error
+            lc.deadline_exceeded = deadline_exceeded
+            if elapsed_ms > 0:
+                lc.elapsed_ms = elapsed_ms
+            if chunk_diagnostics is not None:
+                lc.chunk_diagnostics = chunk_diagnostics
+            lc.updated_at = now_iso
+            self._last_completed_lifecycle = lc.model_copy(deep=True)
+
+    def get_lifecycle_record(self) -> ReviewLifecycleRecord:
+        with self._lifecycle_lock:
+            if self._current_lifecycle.is_reviewing:
+                return self._current_lifecycle.model_copy(deep=True)
+            if self._last_completed_lifecycle is not None:
+                return self._last_completed_lifecycle.model_copy(deep=True)
+            return self._current_lifecycle.model_copy(deep=True)
 
     def update_review_progress(
         self, current: int, total: int, files: str, phase: str = "auditing"
@@ -317,6 +437,36 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             with self.server._review_lock:
                 progress_copy = dict(self.server._review_progress)
             self.send_json(200, progress_copy)
+        elif self.path == "/api/review/diagnostics":
+            record = self.server.get_lifecycle_record()
+            self.send_json(200, record.model_dump(mode="json"))
+        elif self.path == "/api/telemetry/config":
+            opt_in = self.server.store.get_setting("telemetry_opt_in")
+            enabled = (opt_in == "true") if opt_in is not None else False
+            dsn = self.server.store.get_setting("telemetry_dsn") or get_configured_dsn()
+            receipt = get_last_delivery_receipt()
+            export_state = get_export_state().value
+            trace_url = get_trace_url(receipt.trace_id) if receipt.trace_id else None
+            self.send_json(
+                200,
+                {
+                    "enabled": enabled,
+                    "dsn_configured": bool(dsn),
+                    "masked_dsn": mask_dsn(dsn),
+                    "export_state": export_state,
+                    "last_trace_id": receipt.trace_id,
+                    "trace_url": trace_url,
+                    "verified_delivery": receipt.verified_delivery,
+                    "delivery_receipt": {
+                        "trace_id": receipt.trace_id,
+                        "state": receipt.state.value,
+                        "timestamp_utc": receipt.timestamp_utc,
+                        "verified_delivery": receipt.verified_delivery,
+                        "error_detail": receipt.error_detail,
+                    },
+                    "is_reviewing": getattr(self.server, "_is_reviewing", False),
+                },
+            )
         else:
             self.send_json(
                 404, {"error": "not_found", "message": f"Unknown endpoint: {self.path}"}
@@ -568,24 +718,122 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             fresh_session["git_status"] = git_summary
             self.send_json(200, fresh_session)
 
+        elif self.path == "/api/session/pause":
+            repo_path = self._validate_requested_repo(body.get("repo_path"))
+            if not repo_path:
+                return
+            session = self.server.store.get_or_create_session(
+                str(repo_path), repo_path.name
+            )
+            self.server.store.set_session_paused(session["session_id"], True)
+            with self.server._job_lock:
+                if self.server._active_job is not None:
+                    if hasattr(self.server.reviewer, "cancel_active"):
+                        self.server.reviewer.cancel_active()
+                    self.server._active_job.cancel()
+                    self.server.reset_review_progress()
+            self.send_json(200, {"status": "paused", "is_paused": True})
+
+        elif self.path == "/api/session/resume":
+            repo_path = self._validate_requested_repo(body.get("repo_path"))
+            if not repo_path:
+                return
+            session = self.server.store.get_or_create_session(
+                str(repo_path), repo_path.name
+            )
+            self.server.store.set_session_paused(session["session_id"], False)
+            self.send_json(200, {"status": "resumed", "is_paused": False})
+
         elif self.path == "/api/review":
             repo_path = self._validate_requested_repo(body.get("repo_path"))
             if not repo_path:
                 return
 
+            session = self.server.store.get_or_create_session(
+                str(repo_path), repo_path.name
+            )
+
+            # 1. Bounded Pause Check
+            if session.get("is_paused", 0):
+                self.send_json(
+                    409,
+                    {
+                        "error": "conflict",
+                        "code": "review_paused",
+                        "message": "Review is currently paused for this session",
+                    },
+                )
+                return
+
+            # 2. Concurrency Admission Gate (Zero-Queue Single Worker)
             with self.server._job_lock:
                 if self.server._active_job is not None:
                     self.send_json(
                         409,
                         {
                             "error": "conflict",
+                            "code": "review_in_progress",
                             "message": "Review already in progress",
                         },
                     )
                     return
-                session = self.server.store.get_or_create_session(
-                    str(repo_path), repo_path.name
+
+            # 3. Working-Tree Fingerprint Deduplication
+            force_refresh = bool(body.get("force_refresh", False))
+            receipts_raw = body.get("check_receipts", [])
+            _h, _d, _u, comp_hash = compute_snapshot_fingerprint(repo_path)
+
+            if not force_refresh:
+                latest_snap = self.server.store.get_latest_snapshot(
+                    session["session_id"]
                 )
+                latest_receipts = self.server.store.get_receipts(session["session_id"])
+                receipts_match = len(receipts_raw) == len(latest_receipts) and {
+                    r.get("receipt_id") for r in receipts_raw
+                } == {r.get("receipt_id") for r in latest_receipts}
+
+                if (
+                    latest_snap
+                    and latest_snap.get("composite_hash") == comp_hash
+                    and receipts_match
+                ):
+                    cached_findings = self.server.store.get_findings(
+                        session["session_id"]
+                    )
+                    closing_summary = (
+                        session.get("closing_summary")
+                        or "Working tree and receipts unchanged since last review."
+                    )
+                    restart_note = session.get("restart_note") or ""
+                    self.send_json(
+                        200,
+                        {
+                            "packet_id": f"pkt-cached-{comp_hash}",
+                            "status": "unchanged_snapshot",
+                            "unchanged_snapshot": True,
+                            "findings": cached_findings,
+                            "retired_finding_ids": [],
+                            "closing_summary": closing_summary,
+                            "restart_note": restart_note,
+                            "model_name": "cached",
+                            "snapshot_hash": comp_hash,
+                            "timing_ms": {"total_duration_ms": 1.2},
+                        },
+                    )
+                    return
+
+            # 4. Acquire Active Worker Slot
+            with self.server._job_lock:
+                if self.server._active_job is not None:
+                    self.send_json(
+                        409,
+                        {
+                            "error": "conflict",
+                            "code": "review_in_progress",
+                            "message": "Review already in progress",
+                        },
+                    )
+                    return
                 job = ReviewJob(
                     job_id=f"job-{uuid.uuid4().hex[:8]}",
                     repo_path=str(repo_path),
@@ -593,12 +841,23 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                 )
                 self.server._active_job = job
                 self.server._is_reviewing = True
+                self.server.start_lifecycle(
+                    review_id=job.job_id,
+                    repo_name=repo_path.name,
+                    deadline_seconds=body.get("workflow_timeout_seconds", 180.0),
+                )
 
             def on_progress(cur: int, tot: int, files: str) -> None:
                 if job.is_cancelled():
                     return
                 phase = "synthesizing" if "Synthesizing" in files else "auditing"
                 self.server.update_review_progress(cur, tot, files, phase=phase)
+                self.server.update_lifecycle_phase(
+                    phase=phase,
+                    current_chunk=cur,
+                    total_chunks=tot,
+                    current_files=[f.strip() for f in files.split(",") if f.strip()],
+                )
 
             self.server.update_review_progress(
                 0, 1, "Starting snapshot review...", phase="starting"
@@ -610,7 +869,6 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                 criteria = body.get("acceptance_criteria") or session.get(
                     "criteria", []
                 )
-                receipts_raw = body.get("check_receipts", [])
                 prior_raw = body.get("prior_findings", [])
                 deferrals = body.get("explicit_deferrals", [])
 
@@ -663,83 +921,152 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                 model_name = body.get("model", "gemma3:4b")
                 fallback_model = body.get("fallback_model", "qwen2.5-coder:3b")
                 workflow_timeout = body.get("workflow_timeout_seconds", 180.0)
-                result = self.server.reviewer.review(
-                    packet,
-                    model_name=model_name,
-                    fallback_model_name=fallback_model,
-                    progress_callback=on_progress,
-                    is_cancelled=job.is_cancelled,
-                    workflow_timeout_seconds=workflow_timeout,
-                )
 
-                if job.is_cancelled() or result.status == "cancelled":
-                    self.send_json(
-                        409,
-                        {
-                            "error": "conflict",
-                            "message": "Review was cancelled; results discarded",
-                            "status": "cancelled",
-                        },
-                    )
-                    return
-
-                # Re-verify session in database before publishing
-                current_sess = self.server.store.get_or_create_session(
-                    str(repo_path), repo_path.name
-                )
-                if (
-                    current_sess["session_id"] != session["session_id"]
-                    or current_sess.get("status") == "finalized"
-                ):
-                    self.send_json(
-                        409,
-                        {
-                            "error": "conflict",
-                            "message": "Session was reset or closed during review; results discarded",
-                            "status": "cancelled",
-                        },
-                    )
-                    return
-
-                # Persist snapshot, receipts, and findings to SQLite store
-                head_sha = packet.git_head_sha or "0" * 40
-                snap_id = self.server.store.save_snapshot(
+                with start_review_span(
+                    packet_id=packet.packet_id,
+                    repo_name=packet.repo_name,
+                    files_count=len(packet.changed_files),
+                    receipts_count=len(packet.check_receipts),
+                    prior_findings_count=len(packet.prior_findings),
+                    chunks_count=1,
+                    primary_model=model_name,
+                    fallback_model=fallback_model,
                     session_id=session["session_id"],
-                    git_head_sha=head_sha,
-                    diff_hash="",
-                    untracked_hash="",
-                    composite_hash=packet.snapshot_hash or "",
-                )
-                self.server.store.save_receipts(
-                    session["session_id"], snap_id, receipts
-                )
-                self.server.store.save_findings(
-                    session["session_id"], snap_id, result.findings
-                )
+                ) as review_span:
+                    result = self.server.reviewer.review(
+                        packet,
+                        model_name=model_name,
+                        fallback_model_name=fallback_model,
+                        progress_callback=on_progress,
+                        is_cancelled=job.is_cancelled,
+                        workflow_timeout_seconds=workflow_timeout,
+                    )
 
-                if result.retired_finding_ids:
-                    for rid in result.retired_finding_ids:
-                        self.server.store.update_finding_status(
-                            finding_id=rid,
-                            status="evidence-retired",
-                            session_id=session["session_id"],
+                    if job.is_cancelled() or result.status == "cancelled":
+                        self.server.complete_lifecycle(
+                            status="cancelled",
+                            error="Review was cancelled; results discarded",
+                        )
+                        review_span.set_status("cancelled")
+                        self.send_json(
+                            409,
+                            {
+                                "error": "conflict",
+                                "message": "Review was cancelled; results discarded",
+                                "status": "cancelled",
+                            },
+                        )
+                        return
+
+                    # 5. Post-Inference Freshness Fence (Mid-Flight Working-Tree Staleness Rejection)
+                    _, _, _, post_composite_h = compute_snapshot_fingerprint(repo_path)
+                    if post_composite_h != packet.snapshot_hash:
+                        self.server.complete_lifecycle(
+                            status="stale_snapshot",
+                            error="Working tree changed during review; results discarded",
+                        )
+                        review_span.set_status("cancelled")
+                        review_span.set_data("error.type", "stale_snapshot")
+                        self.send_json(
+                            409,
+                            {
+                                "error": "conflict",
+                                "code": "stale_snapshot",
+                                "status": "stale_snapshot",
+                                "message": "Working tree changed during review; results discarded",
+                                "original_snapshot_hash": packet.snapshot_hash,
+                                "current_snapshot_hash": post_composite_h,
+                            },
+                        )
+                        return
+
+                    # Re-verify session in database before publishing
+                    current_sess = self.server.store.get_or_create_session(
+                        str(repo_path), repo_path.name
+                    )
+                    if (
+                        current_sess["session_id"] != session["session_id"]
+                        or current_sess.get("status") == "finalized"
+                    ):
+                        self.server.complete_lifecycle(
+                            status="cancelled",
+                            error="Session was reset or closed during review; results discarded",
+                        )
+                        review_span.set_status("cancelled")
+                        self.send_json(
+                            409,
+                            {
+                                "error": "conflict",
+                                "message": "Session was reset or closed during review; results discarded",
+                                "status": "cancelled",
+                            },
+                        )
+                        return
+
+                    # Persist snapshot, receipts, and findings to SQLite store
+                    head_sha = packet.git_head_sha or "0" * 40
+                    snap_id = self.server.store.save_snapshot(
+                        session_id=session["session_id"],
+                        git_head_sha=head_sha,
+                        diff_hash="",
+                        untracked_hash="",
+                        composite_hash=packet.snapshot_hash or "",
+                    )
+                    self.server.store.save_receipts(
+                        session["session_id"], snap_id, receipts
+                    )
+                    self.server.store.save_findings(
+                        session["session_id"], snap_id, result.findings
+                    )
+
+                    if result.retired_finding_ids:
+                        for rid in result.retired_finding_ids:
+                            self.server.store.update_finding_status(
+                                finding_id=rid,
+                                status="evidence-retired",
+                                session_id=session["session_id"],
+                            )
+
+                    # Update restart note only if user has not edited it in the database
+                    fresh_note_sess = self.server.store.get_or_create_session(
+                        str(repo_path), repo_path.name
+                    )
+                    if (
+                        fresh_note_sess.get("is_note_user_edited", 0) == 0
+                        and result.restart_note
+                    ):
+                        self.server.store.save_restart_note(
+                            session["session_id"],
+                            result.restart_note,
+                            is_user_edited=False,
+                        )
+                    else:
+                        result.restart_note = fresh_note_sess.get(
+                            "restart_note", result.restart_note
                         )
 
-                # Update restart note only if user has not edited it in the database
-                fresh_note_sess = self.server.store.get_or_create_session(
-                    str(repo_path), repo_path.name
+                    # Record span completion telemetry
+                    review_span.set_data("review.status", result.status)
+                    review_span.set_data("review.findings_count", len(result.findings))
+                    review_span.set_data(
+                        "review.retired_count", len(result.retired_finding_ids)
+                    )
+                    review_span.set_data(
+                        "review.effective_model", result.model_name or model_name
+                    )
+                    review_span.set_status("ok")
+
+                # Flush and verify delivery if telemetry was active during review
+                verify_and_flush(timeout=5.0)
+
+                elapsed = result.timing_ms.get("total_duration_ms", 0.0)
+                self.server.complete_lifecycle(
+                    status=result.status,
+                    error=result.error,
+                    chunk_diagnostics=result.chunk_provenance,
+                    elapsed_ms=elapsed,
+                    deadline_exceeded="timeout" in (result.error or "").lower(),
                 )
-                if (
-                    fresh_note_sess.get("is_note_user_edited", 0) == 0
-                    and result.restart_note
-                ):
-                    self.server.store.save_restart_note(
-                        session["session_id"], result.restart_note, is_user_edited=False
-                    )
-                else:
-                    result.restart_note = fresh_note_sess.get(
-                        "restart_note", result.restart_note
-                    )
 
                 self.send_json(200, result.model_dump(mode="json"))
             finally:
@@ -748,6 +1075,11 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                         self.server._active_job = None
                         self.server._is_reviewing = False
                         self.server.reset_review_progress()
+                if self.server._current_lifecycle.is_reviewing:
+                    self.server.complete_lifecycle(
+                        status="failed",
+                        error="Review terminated unexpectedly",
+                    )
 
         elif self.path == "/api/review/cancel":
             with self.server._job_lock:
@@ -755,6 +1087,10 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     self.server.reviewer.cancel_active()
                 if self.server._active_job is not None:
                     self.server._active_job.cancel()
+                    self.server.complete_lifecycle(
+                        status="cancelled",
+                        error="Review cancelled by user",
+                    )
                     self.server.reset_review_progress()
                     self.send_json(
                         200, {"status": "cancelled", "message": "Review cancelled"}
@@ -764,6 +1100,49 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     self.send_json(
                         200, {"status": "cancelled", "message": "No review in progress"}
                     )
+
+        elif self.path == "/api/telemetry/config":
+            enabled = bool(body.get("enabled", False))
+            dsn = body.get("dsn")
+            if dsn is not None:
+                self.server.store.set_setting("telemetry_dsn", dsn)
+            self.server.store.set_setting(
+                "telemetry_opt_in", "true" if enabled else "false"
+            )
+
+            effective_dsn = (
+                dsn
+                or self.server.store.get_setting("telemetry_dsn")
+                or get_configured_dsn()
+            )
+            set_telemetry_opt_in(enabled, dsn=effective_dsn)
+
+            receipt = get_last_delivery_receipt()
+            export_state = get_export_state().value
+            trace_url = get_trace_url(receipt.trace_id) if receipt.trace_id else None
+            is_reviewing = getattr(self.server, "_is_reviewing", False)
+            self.send_json(
+                200,
+                {
+                    "enabled": enabled,
+                    "dsn_configured": bool(effective_dsn),
+                    "masked_dsn": mask_dsn(effective_dsn),
+                    "export_state": export_state,
+                    "last_trace_id": receipt.trace_id,
+                    "trace_url": trace_url,
+                    "verified_delivery": receipt.verified_delivery,
+                    "effective_immediately": not is_reviewing,
+                    "pending_activation": is_reviewing and enabled,
+                    "delivery_receipt": {
+                        "trace_id": receipt.trace_id,
+                        "state": receipt.state.value,
+                        "timestamp_utc": receipt.timestamp_utc,
+                        "verified_delivery": receipt.verified_delivery,
+                        "error_detail": receipt.error_detail,
+                    },
+                    "is_reviewing": is_reviewing,
+                },
+            )
 
         elif self.path == "/api/shutdown":
             self.send_json(200, {"status": "shutting_down"})
@@ -823,6 +1202,20 @@ def start_stdin_watchdog() -> None:
 def main() -> None:
     """CLI entrypoint for running the SteadyDev loopback engine."""
     import argparse
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except (ImportError, OSError):
+        pass
+
+    try:
+        from steadydev.telemetry import init_telemetry
+
+        init_telemetry()
+    except (ImportError, RuntimeError):
+        pass
 
     parser = argparse.ArgumentParser(description="SteadyDev Loopback Engine")
     parser.add_argument(

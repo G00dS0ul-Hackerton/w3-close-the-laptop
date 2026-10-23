@@ -16,12 +16,12 @@ def store(tmp_path: Path) -> SessionStore:
 
 
 def test_schema_migration_and_pragmas(store: SessionStore, tmp_path: Path) -> None:
-    """Verify database initializes with WAL mode, foreign keys, and user_version = 2."""
+    """Verify database initializes with WAL mode, foreign keys, and user_version = 4."""
     with store.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("PRAGMA user_version;")
         version = cursor.fetchone()[0]
-        assert version == 2
+        assert version == 4
 
         cursor.execute("PRAGMA foreign_keys;")
         foreign_keys = cursor.fetchone()[0]
@@ -30,6 +30,19 @@ def test_schema_migration_and_pragmas(store: SessionStore, tmp_path: Path) -> No
         cursor.execute("PRAGMA journal_mode;")
         journal_mode = cursor.fetchone()[0]
         assert journal_mode.lower() == "wal"
+
+
+def test_app_settings_key_value(store: SessionStore) -> None:
+    """Verify get_setting and set_setting operations on app_settings table."""
+    assert store.get_setting("non_existent") is None
+    assert store.get_setting("non_existent", default="fallback") == "fallback"
+
+    store.set_setting("telemetry_enabled", "true")
+    assert store.get_setting("telemetry_enabled") == "true"
+
+    # Update value
+    store.set_setting("telemetry_enabled", "false")
+    assert store.get_setting("telemetry_enabled") == "false"
 
 
 def test_get_or_create_session(store: SessionStore, tmp_path: Path) -> None:

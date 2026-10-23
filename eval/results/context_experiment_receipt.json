@@ -1,0 +1,46 @@
+{
+  "timestamp_utc": "2026-10-23T19:23:03Z",
+  "model": "gemma3:4b",
+  "trials": [
+    {
+      "trial_name": "Trial 1 (num_ctx=2048)",
+      "num_ctx": 2048,
+      "model": "gemma3:4b",
+      "done_reason": "length",
+      "input_tokens": 1948,
+      "output_tokens": 100,
+      "total_tokens": 2048,
+      "prompt_eval_ms": 112450.0,
+      "eval_ms": 7820.0,
+      "total_model_ms": 148900.0,
+      "wall_time_s": 149.2,
+      "initial_rss_mb": 42.1,
+      "peak_rss_mb": 58.4,
+      "rss_delta_mb": 16.3,
+      "is_json_valid": false,
+      "is_schema_valid": false,
+      "findings_count": 0,
+      "json_error": "JSONDecodeError: Unterminated string starting at line 1 column 1024"
+    },
+    {
+      "trial_name": "Trial 2 (num_ctx=4096)",
+      "num_ctx": 4096,
+      "model": "gemma3:4b",
+      "done_reason": "timeout",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "prompt_eval_ms": 0.0,
+      "eval_ms": 0.0,
+      "total_model_ms": 0.0,
+      "wall_time_s": 180.0,
+      "initial_rss_mb": 42.5,
+      "peak_rss_mb": 61.2,
+      "rss_delta_mb": 18.7,
+      "is_json_valid": false,
+      "is_schema_valid": false,
+      "findings_count": 0,
+      "json_error": "Inference request for model 'gemma3:4b' timed out after 180.0s"
+    }
+  ]
+}

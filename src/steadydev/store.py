@@ -93,6 +93,14 @@ class SessionStore:
                 self._apply_v2_migration(conn)
                 conn.execute("PRAGMA user_version = 2;")
 
+            if current_version < 3:
+                self._apply_v3_migration(conn)
+                conn.execute("PRAGMA user_version = 3;")
+
+            if current_version < 4:
+                self._apply_v4_migration(conn)
+                conn.execute("PRAGMA user_version = 4;")
+
     def _apply_v1_migration(self, conn: sqlite3.Connection) -> None:
         """Create initial tables for sessions, snapshots, findings, and receipts."""
         conn.executescript(
@@ -224,6 +232,51 @@ class SessionStore:
             )
         finally:
             conn.execute("PRAGMA foreign_keys = ON;")
+
+    def _apply_v3_migration(self, conn: sqlite3.Connection) -> None:
+        """Add engine column to findings table."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(findings);")
+        cols = {row[1] for row in cursor.fetchall()}
+        if "engine" not in cols:
+            conn.execute(
+                "ALTER TABLE findings ADD COLUMN engine TEXT NOT NULL DEFAULT 'baseline-checklist';"
+            )
+
+    def _apply_v4_migration(self, conn: sqlite3.Connection) -> None:
+        """Create app_settings key-value table for persistent configuration."""
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        """Fetch a persistent setting by key."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM app_settings WHERE key = ?;", (key,))
+            row = cursor.fetchone()
+            if row:
+                return str(row[0])
+            return default
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Set a persistent setting by key."""
+        now = datetime.now(UTC).isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+                """,
+                (key, value, now),
+            )
 
     def get_or_create_session(self, repo_path: str, repo_name: str) -> dict[str, Any]:
         """Return the latest session for this repo, or create a new one."""
@@ -545,7 +598,7 @@ class SessionStore:
                         """
                         UPDATE findings SET
                             snapshot_id = ?, category = ?, title = ?, detail = ?, file_path = ?,
-                            line_start = ?, status = ?, user_reason = ?, updated_at = ?
+                            line_start = ?, status = ?, user_reason = ?, engine = ?, updated_at = ?
                         WHERE finding_id = ? AND session_id = ?;
                         """,
                         (
@@ -559,6 +612,8 @@ class SessionStore:
                             line_no,
                             target_status,
                             user_reason,
+                            getattr(f, "engine", "baseline-checklist")
+                            or "baseline-checklist",
                             now,
                             f.finding_id,
                             session_id,
@@ -572,8 +627,8 @@ class SessionStore:
                         """
                         INSERT INTO findings (
                             finding_id, session_id, snapshot_id, category, title, detail, file_path,
-                            line_start, status, user_reason, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?);
+                            line_start, status, user_reason, engine, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?);
                         """,
                         (
                             f.finding_id,
@@ -587,6 +642,8 @@ class SessionStore:
                             file_path,
                             line_no,
                             status_val,
+                            getattr(f, "engine", "baseline-checklist")
+                            or "baseline-checklist",
                             now,
                             now,
                         ),
@@ -721,6 +778,32 @@ class SessionStore:
             conn.execute(
                 "UPDATE sessions SET is_ended = 1, closing_summary_json = ?, updated_at = ? WHERE session_id = ?;",
                 (summary_json, now, session_id),
+            )
+
+    def get_latest_snapshot(self, session_id: str) -> dict[str, Any] | None:
+        """Fetch the most recent snapshot record for a session."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT snapshot_id, session_id, git_head_sha, diff_hash, untracked_hash, composite_hash, created_at
+                FROM snapshots
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1;
+                """,
+                (session_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def set_session_paused(self, session_id: str, is_paused: bool) -> None:
+        """Set paused status for a session."""
+        now = datetime.now(UTC).isoformat()
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE sessions SET is_paused = ?, updated_at = ? WHERE session_id = ?;",
+                (1 if is_paused else 0, now, session_id),
             )
 
     def checkpoint(self, mode: str = "TRUNCATE") -> None:

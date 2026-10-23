@@ -2,6 +2,7 @@
 
 import contextlib
 import os
+import threading
 from typing import Any
 
 import httpx
@@ -48,6 +49,7 @@ class OllamaClient:
             write=15.0,
             pool=10.0,
         )
+        self._client_lock = threading.Lock()
         self._client = client or httpx.Client(
             base_url=self.base_url, timeout=self.timeout
         )
@@ -117,9 +119,10 @@ class OllamaClient:
 
     def cancel_active(self, active_model: str | None = None) -> None:
         """Sever active HTTP socket connection and unload model from memory."""
-        with contextlib.suppress(httpx.HTTPError, OSError):
-            self._client.close()
-        self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout)
+        with self._client_lock:
+            with contextlib.suppress(httpx.HTTPError, OSError):
+                self._client.close()
+            self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout)
         if active_model:
             self.unload_model(active_model)
 
@@ -130,6 +133,7 @@ class OllamaClient:
         options: dict[str, Any] | None = None,
         json_format: bool = True,
         keep_alive: str = "5m",
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """Execute a chat completion with structured output and CPU timing capture."""
         opts = {
@@ -154,7 +158,10 @@ class OllamaClient:
             payload["format"] = "json"
 
         try:
-            resp = self._client.post(f"{self.base_url}/api/chat", json=payload)
+            post_kwargs: dict[str, Any] = {"json": payload}
+            if timeout is not None:
+                post_kwargs["timeout"] = timeout
+            resp = self._client.post(f"{self.base_url}/api/chat", **post_kwargs)
 
             if resp.status_code == 404:
                 raise OllamaModelNotFoundError(
@@ -175,6 +182,7 @@ class OllamaClient:
             return {
                 "content": content,
                 "model": data.get("model", model),
+                "done_reason": data.get("done_reason", "stop"),
                 "total_duration_ms": total_ms,
                 "load_duration_ms": load_ms,
                 "prompt_eval_duration_ms": prompt_eval_ms,
@@ -189,9 +197,13 @@ class OllamaClient:
             ) from exc
         except httpx.TimeoutException as exc:
             timeout_desc = (
-                f"{self.timeout.read}s"
-                if self.timeout.read is not None
-                else "unlimited read timeout"
+                f"{timeout}s"
+                if timeout is not None
+                else (
+                    f"{self.timeout.read}s"
+                    if self.timeout.read is not None
+                    else "unlimited read timeout"
+                )
             )
             raise OllamaTimeoutError(
                 f"Inference request for model '{model}' timed out after {timeout_desc}"

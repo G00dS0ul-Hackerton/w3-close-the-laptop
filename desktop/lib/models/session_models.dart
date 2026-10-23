@@ -25,6 +25,7 @@ class FindingItem {
   final bool isStale;
   final String? staleReason;
   final String? retiredByReceiptId;
+  final String engine;
 
   FindingItem({
     required this.id,
@@ -39,6 +40,7 @@ class FindingItem {
     this.isStale = false,
     this.staleReason,
     this.retiredByReceiptId,
+    this.engine = 'baseline-checklist',
   });
 
   factory FindingItem.fromJson(Map<String, dynamic> json) {
@@ -91,6 +93,7 @@ class FindingItem {
       isStale: isStaleBool,
       staleReason: json['stale_reason'] as String?,
       retiredByReceiptId: json['retired_by_receipt_id'] as String?,
+      engine: json['engine'] as String? ?? 'baseline-checklist',
     );
   }
 
@@ -221,6 +224,74 @@ class ModelOption {
       };
 }
 
+class ModelAttemptData {
+  final String model;
+  final String outcome;
+  final double durationMs;
+  final int? inputTokens;
+  final int? outputTokens;
+  final String? doneReason;
+  final String? errorDetail;
+
+  ModelAttemptData({
+    required this.model,
+    required this.outcome,
+    this.durationMs = 0.0,
+    this.inputTokens,
+    this.outputTokens,
+    this.doneReason,
+    this.errorDetail,
+  });
+
+  factory ModelAttemptData.fromJson(Map<String, dynamic> json) {
+    return ModelAttemptData(
+      model: json['model'] as String? ?? 'unknown',
+      outcome: json['outcome'] as String? ?? 'unknown',
+      durationMs: (json['duration_ms'] as num? ?? 0.0).toDouble(),
+      inputTokens: json['input_tokens'] as int?,
+      outputTokens: json['output_tokens'] as int?,
+      doneReason: json['done_reason'] as String?,
+      errorDetail: json['error_detail'] as String?,
+    );
+  }
+}
+
+class ChunkProvenanceData {
+  final int chunkIndex;
+  final int totalChunks;
+  final List<String> filePaths;
+  final List<ModelAttemptData> attempts;
+  final String resolvedEngine;
+  final String? fallbackReason;
+  final int findingsCount;
+
+  ChunkProvenanceData({
+    required this.chunkIndex,
+    required this.totalChunks,
+    required this.filePaths,
+    required this.attempts,
+    required this.resolvedEngine,
+    this.fallbackReason,
+    this.findingsCount = 0,
+  });
+
+  factory ChunkProvenanceData.fromJson(Map<String, dynamic> json) {
+    final rawAttempts = json['attempts'] as List<dynamic>? ?? [];
+    final rawFiles = json['file_paths'] as List<dynamic>? ?? [];
+    return ChunkProvenanceData(
+      chunkIndex: json['chunk_index'] as int? ?? 1,
+      totalChunks: json['total_chunks'] as int? ?? 1,
+      filePaths: rawFiles.map((e) => e.toString()).toList(),
+      attempts: rawAttempts
+          .map((a) => ModelAttemptData.fromJson(a as Map<String, dynamic>))
+          .toList(),
+      resolvedEngine: json['resolved_engine'] as String? ?? 'baseline-checklist',
+      fallbackReason: json['fallback_reason'] as String?,
+      findingsCount: json['findings_count'] as int? ?? 0,
+    );
+  }
+}
+
 class ReviewResultData {
   final String packetId;
   final String modelTag;
@@ -231,6 +302,8 @@ class ReviewResultData {
   final String restartNote;
   final List<String> retiredFindingIds;
   final String? error;
+  final bool unchangedSnapshot;
+  final List<ChunkProvenanceData> chunkProvenance;
 
   ReviewResultData({
     required this.packetId,
@@ -242,17 +315,37 @@ class ReviewResultData {
     required this.restartNote,
     required this.retiredFindingIds,
     this.error,
+    this.unchangedSnapshot = false,
+    this.chunkProvenance = const [],
   });
 
   bool get isFallback =>
       status == 'fallback_baseline' ||
       (error != null && error!.toLowerCase().contains('fell back'));
 
+  bool get isPartialCoverage {
+    if (chunkProvenance.isEmpty) return false;
+    final hasBaseline =
+        chunkProvenance.any((c) => c.resolvedEngine.contains('baseline'));
+    final hasAi =
+        chunkProvenance.any((c) => !c.resolvedEngine.contains('baseline'));
+    return hasBaseline && hasAi;
+  }
+
+  int get aiChunksCount =>
+      chunkProvenance.where((c) => !c.resolvedEngine.contains('baseline')).length;
+
+  int get baselineChunksCount =>
+      chunkProvenance.where((c) => c.resolvedEngine.contains('baseline')).length;
+
   factory ReviewResultData.fromJson(Map<String, dynamic> json) {
     final rawFindings = json['findings'] as List<dynamic>? ?? [];
+    final rawProvenance = json['chunk_provenance'] as List<dynamic>? ?? [];
     return ReviewResultData(
       packetId: json['packet_id'] as String? ?? '',
-      modelTag: json['model_name'] as String? ?? json['model_tag'] as String? ?? 'gemma3:4b',
+      modelTag: json['model_name'] as String? ??
+          json['model_tag'] as String? ??
+          'gemma3:4b',
       elapsedSeconds: (json['elapsed_seconds'] as num? ?? 0.0).toDouble(),
       status: json['status'] as String? ?? 'clean',
       findings: rawFindings
@@ -264,6 +357,76 @@ class ReviewResultData {
           .map((e) => e.toString())
           .toList(),
       error: json['error'] as String?,
+      unchangedSnapshot: json['unchanged_snapshot'] as bool? ?? false,
+      chunkProvenance: rawProvenance
+          .map((p) => ChunkProvenanceData.fromJson(p as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class ReviewDiagnosticsData {
+  final String reviewId;
+  final String phase;
+  final bool isReviewing;
+  final String repoName;
+  final String? snapshotHash;
+  final int totalFiles;
+  final int totalChunks;
+  final int currentChunk;
+  final List<String> currentFiles;
+  final List<ChunkProvenanceData> chunkDiagnostics;
+  final double elapsedMs;
+  final double deadlineSeconds;
+  final bool deadlineExceeded;
+  final String status;
+  final String? error;
+  final String createdAt;
+  final String updatedAt;
+
+  ReviewDiagnosticsData({
+    required this.reviewId,
+    required this.phase,
+    required this.isReviewing,
+    required this.repoName,
+    this.snapshotHash,
+    required this.totalFiles,
+    required this.totalChunks,
+    required this.currentChunk,
+    required this.currentFiles,
+    required this.chunkDiagnostics,
+    required this.elapsedMs,
+    required this.deadlineSeconds,
+    required this.deadlineExceeded,
+    required this.status,
+    this.error,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory ReviewDiagnosticsData.fromJson(Map<String, dynamic> json) {
+    final rawChunks = json['chunk_diagnostics'] as List<dynamic>? ?? [];
+    final rawFiles = json['current_files'] as List<dynamic>? ?? [];
+    return ReviewDiagnosticsData(
+      reviewId: json['review_id'] as String? ?? 'idle',
+      phase: json['phase'] as String? ?? 'idle',
+      isReviewing: json['is_reviewing'] as bool? ?? false,
+      repoName: json['repo_name'] as String? ?? '',
+      snapshotHash: json['snapshot_hash'] as String?,
+      totalFiles: json['total_files'] as int? ?? 0,
+      totalChunks: json['total_chunks'] as int? ?? 0,
+      currentChunk: json['current_chunk'] as int? ?? 0,
+      currentFiles: rawFiles.map((e) => e.toString()).toList(),
+      chunkDiagnostics: rawChunks
+          .map((c) => ChunkProvenanceData.fromJson(c as Map<String, dynamic>))
+          .toList(),
+      elapsedMs: (json['elapsed_ms'] as num? ?? 0.0).toDouble(),
+      deadlineSeconds: (json['deadline_seconds'] as num? ?? 180.0).toDouble(),
+      deadlineExceeded: json['deadline_exceeded'] as bool? ?? false,
+      status: json['status'] as String? ?? 'idle',
+      error: json['error'] as String?,
+      createdAt: json['created_at'] as String? ?? '',
+      updatedAt: json['updated_at'] as String? ?? '',
     );
   }
 }
@@ -378,6 +541,79 @@ class ReviewProgressData {
       totalChunks: json['total_chunks'] as int? ?? 0,
       currentFiles: json['current_files'] as String? ?? '',
       phase: json['phase'] as String? ?? 'idle',
+    );
+  }
+}
+
+class TelemetryDeliveryReceiptData {
+  final String? traceId;
+  final String state;
+  final String? timestampUtc;
+  final bool verifiedDelivery;
+  final String? errorDetail;
+
+  TelemetryDeliveryReceiptData({
+    this.traceId,
+    required this.state,
+    this.timestampUtc,
+    required this.verifiedDelivery,
+    this.errorDetail,
+  });
+
+  factory TelemetryDeliveryReceiptData.fromJson(Map<String, dynamic> json) {
+    return TelemetryDeliveryReceiptData(
+      traceId: json['trace_id'] as String?,
+      state: json['state'] as String? ?? 'disabled',
+      timestampUtc: json['timestamp_utc'] as String?,
+      verifiedDelivery: json['verified_delivery'] as bool? ?? false,
+      errorDetail: json['error_detail'] as String?,
+    );
+  }
+}
+
+class TelemetryConfigData {
+  final bool enabled;
+  final bool dsnConfigured;
+  final String maskedDsn;
+  final String exportState;
+  final String? lastTraceId;
+  final String? traceUrl;
+  final bool verifiedDelivery;
+  final bool effectiveImmediately;
+  final bool pendingActivation;
+  final TelemetryDeliveryReceiptData? deliveryReceipt;
+  final bool isReviewing;
+
+  TelemetryConfigData({
+    required this.enabled,
+    required this.dsnConfigured,
+    required this.maskedDsn,
+    required this.exportState,
+    this.lastTraceId,
+    this.traceUrl,
+    required this.verifiedDelivery,
+    this.effectiveImmediately = true,
+    this.pendingActivation = false,
+    this.deliveryReceipt,
+    this.isReviewing = false,
+  });
+
+  factory TelemetryConfigData.fromJson(Map<String, dynamic> json) {
+    final rawReceipt = json['delivery_receipt'] as Map<String, dynamic>?;
+    return TelemetryConfigData(
+      enabled: json['enabled'] as bool? ?? false,
+      dsnConfigured: json['dsn_configured'] as bool? ?? false,
+      maskedDsn: json['masked_dsn'] as String? ?? '',
+      exportState: json['export_state'] as String? ?? 'disabled',
+      lastTraceId: json['last_trace_id'] as String?,
+      traceUrl: json['trace_url'] as String?,
+      verifiedDelivery: json['verified_delivery'] as bool? ?? false,
+      effectiveImmediately: json['effective_immediately'] as bool? ?? true,
+      pendingActivation: json['pending_activation'] as bool? ?? false,
+      deliveryReceipt: rawReceipt != null
+          ? TelemetryDeliveryReceiptData.fromJson(rawReceipt)
+          : null,
+      isReviewing: json['is_reviewing'] as bool? ?? false,
     );
   }
 }

@@ -9,9 +9,11 @@ from steadydev.baseline import ChecklistBaseline
 from steadydev.models import (
     ChangedFile,
     CheckReceipt,
+    ChunkProvenance,
     Finding,
     FindingCategory,
     FindingStatus,
+    ModelAttempt,
     ReviewPacket,
     ReviewResult,
     compute_finding_id,
@@ -23,6 +25,7 @@ from steadydev.ollama_client import (
     OllamaTimeoutError,
 )
 from steadydev.packet import format_packet_for_prompt
+from steadydev.telemetry import start_chat_span, start_tool_span
 
 SYSTEM_PROMPT = """You are SteadyDev, a quiet, local-first code review companion helping developers end their work sessions with clarity.
 Core philosophy: "You don't have to finish everything today. You just need to know where you stand and how to continue tomorrow."
@@ -188,24 +191,87 @@ class Reviewer:
         self.ollama_client.cancel_active(active_model=self.active_model)
 
     def _invoke_single_model(
-        self, model_name: str, messages: list[dict]
-    ) -> tuple[dict | None, dict[str, float], str, str | None]:
-        """Invoke Ollama model and validate required JSON shape.
+        self,
+        model_name: str,
+        messages: list[dict],
+        chunk_index: int | None = None,
+        total_chunks: int | None = None,
+        is_fallback: bool = False,
+        files_count: int | None = None,
+        diff_chars: int | None = None,
+        timeout: float | None = None,
+    ) -> tuple[dict | None, dict[str, float], str, str | None, ModelAttempt]:
+        """Invoke Ollama model with manual Sentry chat span and validate required JSON shape.
 
         Propagates OllamaConnectionError for short-circuiting.
-        Returns (parsed_dict, timings, raw_text, error_message).
+        Returns (parsed_dict, timings, raw_text, error_message, attempt_record).
         """
         self.active_model = model_name
-        try:
-            raw_response = self.ollama_client.chat(
-                model=model_name,
-                messages=messages,
-                json_format=True,
+        with start_chat_span(
+            model_name=model_name,
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+            is_fallback=is_fallback,
+            files_count=files_count,
+            diff_chars=diff_chars,
+        ) as chat_span:
+            try:
+                raw_response = self.ollama_client.chat(
+                    model=model_name,
+                    messages=messages,
+                    json_format=True,
+                    timeout=timeout,
+                )
+            except OllamaConnectionError:
+                chat_span.set_status("internal_error")
+                chat_span.set_data("error.type", "OllamaConnectionError")
+                raise
+            except (OllamaTimeoutError, OllamaClientError) as exc:
+                err_type = type(exc).__name__
+                is_timeout = "Timeout" in err_type
+                chat_span.set_status(
+                    "deadline_exceeded" if is_timeout else "internal_error"
+                )
+                chat_span.set_data("error.type", err_type)
+                if is_timeout:
+                    self.ollama_client.unload_model(model_name)
+                attempt = ModelAttempt(
+                    model=model_name,
+                    outcome="timeout" if is_timeout else "client_error",
+                    duration_ms=0.0,
+                    error_detail=f"{err_type}: {exc}",
+                )
+                return None, {}, "", f"{err_type}: {exc}", attempt
+
+            in_tokens = raw_response.get("prompt_eval_count", 0)
+            out_tokens = raw_response.get("eval_count", 0)
+            total_tokens = in_tokens + out_tokens
+            done_reason = raw_response.get("done_reason", "stop")
+
+            chat_span.set_data(
+                "gen_ai.response.model", raw_response.get("model", model_name)
             )
-        except OllamaConnectionError:
-            raise
-        except (OllamaTimeoutError, OllamaClientError) as exc:
-            return None, {}, "", f"{type(exc).__name__}: {exc}"
+            chat_span.set_data("gen_ai.usage.input_tokens", in_tokens)
+            chat_span.set_data("gen_ai.usage.output_tokens", out_tokens)
+            chat_span.set_data("gen_ai.usage.total_tokens", total_tokens)
+            chat_span.set_data("ollama.done_reason", done_reason)
+            chat_span.set_data(
+                "ollama.timing.total_duration_ms",
+                raw_response.get("total_duration_ms", 0.0),
+            )
+            chat_span.set_data(
+                "ollama.timing.load_duration_ms",
+                raw_response.get("load_duration_ms", 0.0),
+            )
+            chat_span.set_data(
+                "ollama.timing.prompt_eval_duration_ms",
+                raw_response.get("prompt_eval_duration_ms", 0.0),
+            )
+            chat_span.set_data(
+                "ollama.timing.eval_duration_ms",
+                raw_response.get("eval_duration_ms", 0.0),
+            )
+            chat_span.set_status("ok")
 
         raw_text = raw_response.get("content", "")
         timings = {
@@ -219,14 +285,37 @@ class Reviewer:
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as err:
-            return None, timings, raw_text, f"Malformed model JSON: {err}"
+            err_msg = f"Malformed model JSON: {err}"
+            attempt = ModelAttempt(
+                model=model_name,
+                outcome="schema_invalid",
+                duration_ms=timings["total_duration_ms"],
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                done_reason=done_reason,
+                error_detail=err_msg,
+            )
+            return None, timings, raw_text, err_msg, attempt
 
         if not isinstance(parsed, dict):
+            err_msg = (
+                f"Model response must be a JSON object, got {type(parsed).__name__}"
+            )
+            attempt = ModelAttempt(
+                model=model_name,
+                outcome="schema_invalid",
+                duration_ms=timings["total_duration_ms"],
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                done_reason=done_reason,
+                error_detail=err_msg,
+            )
             return (
                 None,
                 timings,
                 raw_text,
-                f"Model response must be a JSON object, got {type(parsed).__name__}",
+                err_msg,
+                attempt,
             )
 
         required_keys = {"status", "findings", "closing_summary", "restart_note"}
@@ -237,9 +326,28 @@ class Reviewer:
                 if missing_keys
                 else "'findings' field must be a list"
             )
-            return None, timings, raw_text, f"Incomplete model response ({msg})"
+            err_msg = f"Incomplete model response ({msg})"
+            attempt = ModelAttempt(
+                model=model_name,
+                outcome="schema_invalid",
+                duration_ms=timings["total_duration_ms"],
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                done_reason=done_reason,
+                error_detail=err_msg,
+            )
+            return None, timings, raw_text, err_msg, attempt
 
-        return parsed, timings, raw_text, None
+        attempt = ModelAttempt(
+            model=model_name,
+            outcome="success",
+            duration_ms=timings["total_duration_ms"],
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
+            done_reason=done_reason,
+            error_detail=None,
+        )
+        return parsed, timings, raw_text, None, attempt
 
     def _process_model_json(
         self,
@@ -287,6 +395,7 @@ class Reviewer:
                     + f" [Notice: unrecognized category '{category_raw}']",
                     evidence=rf.get("evidence", ""),
                     status=FindingStatus.OPEN,
+                    engine=model_name or "baseline-checklist",
                     validation_error=f"Unrecognized category '{category_raw}' normalized to needs_judgment",
                 )
                 findings.append(finding)
@@ -305,6 +414,7 @@ class Reviewer:
                 description=desc,
                 evidence=rf.get("evidence", ""),
                 status=status_val,
+                engine=model_name or "baseline-checklist",
                 validation_error=val_err,
             )
 
@@ -458,6 +568,7 @@ class Reviewer:
         packet: ReviewPacket,
         all_findings: list[Finding],
         model_name: str,
+        timeout: float | None = None,
     ) -> tuple[str, str, dict[str, float]]:
         """Synthesize closing summary and restart note across all chunks."""
         findings_bullets = (
@@ -494,30 +605,50 @@ class Reviewer:
         ]
 
         timings: dict[str, float] = {}
-        try:
-            raw_response = self.ollama_client.chat(
-                model=model_name,
-                messages=messages,
-                json_format=True,
-            )
-            timings = {
-                "total_duration_ms": raw_response.get("total_duration_ms", 0.0),
-                "load_duration_ms": raw_response.get("load_duration_ms", 0.0),
-                "prompt_eval_duration_ms": raw_response.get(
-                    "prompt_eval_duration_ms", 0.0
-                ),
-                "eval_duration_ms": raw_response.get("eval_duration_ms", 0.0),
-            }
-            content = strip_markdown_fences(raw_response.get("content", ""))
-            parsed = json.loads(content)
-            if isinstance(parsed, dict):
-                summary = parsed.get("closing_summary", "")
-                restart = parsed.get("restart_note", "")
-                if summary and restart:
-                    return summary, restart, timings
-        except (OllamaClientError, json.JSONDecodeError, KeyError, ValueError):
-            # Model synthesis failed or malformed; continue to deterministic fallback synthesis
-            pass
+        with start_chat_span(model_name=model_name, is_synthesis=True) as synth_span:
+            synth_span.set_data("synthesis.findings_input_count", len(all_findings))
+            try:
+                raw_response = self.ollama_client.chat(
+                    model=model_name,
+                    messages=messages,
+                    json_format=True,
+                    timeout=timeout,
+                )
+                in_tok = raw_response.get("prompt_eval_count", 0)
+                out_tok = raw_response.get("eval_count", 0)
+                synth_span.set_data("gen_ai.usage.input_tokens", in_tok)
+                synth_span.set_data("gen_ai.usage.output_tokens", out_tok)
+                synth_span.set_data("gen_ai.usage.total_tokens", in_tok + out_tok)
+                synth_span.set_data(
+                    "ollama.timing.total_duration_ms",
+                    raw_response.get("total_duration_ms", 0.0),
+                )
+                synth_span.set_status("ok")
+
+                timings = {
+                    "total_duration_ms": raw_response.get("total_duration_ms", 0.0),
+                    "load_duration_ms": raw_response.get("load_duration_ms", 0.0),
+                    "prompt_eval_duration_ms": raw_response.get(
+                        "prompt_eval_duration_ms", 0.0
+                    ),
+                    "eval_duration_ms": raw_response.get("eval_duration_ms", 0.0),
+                }
+                content = strip_markdown_fences(raw_response.get("content", ""))
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    summary = parsed.get("closing_summary", "")
+                    restart = parsed.get("restart_note", "")
+                    if summary and restart:
+                        return summary, restart, timings
+            except (
+                OllamaClientError,
+                json.JSONDecodeError,
+                KeyError,
+                ValueError,
+            ) as exc:
+                synth_span.set_status("internal_error")
+                synth_span.set_data("error.type", type(exc).__name__)
+                # Model synthesis failed or malformed; continue to deterministic fallback synthesis
 
         # Deterministic fallback synthesis
         file_count = len(packet.changed_files)
@@ -562,8 +693,14 @@ class Reviewer:
 
         def is_timeout() -> bool:
             return (
-                workflow_deadline is not None and time.monotonic() > workflow_deadline
+                workflow_deadline is not None and time.monotonic() >= workflow_deadline
             )
+
+        def get_remaining_budget() -> float | None:
+            if workflow_deadline is None:
+                return None
+            remaining = workflow_deadline - time.monotonic()
+            return max(0.0, remaining)
 
         if is_cancelled and is_cancelled():
             return ReviewResult(
@@ -575,7 +712,25 @@ class Reviewer:
 
         # Baseline-only execution
         if not model_name or model_name in ("baseline", "baseline-checklist"):
-            return self.baseline.evaluate(packet)
+            with start_tool_span(
+                tool_name="ChecklistBaseline", reason="primary_mode"
+            ) as t_span:
+                fb = self.baseline.evaluate(packet)
+                t_span.set_data("baseline.findings_count", len(fb.findings))
+                t_span.set_data("baseline.retired_count", len(fb.retired_finding_ids))
+                t_span.set_status("ok")
+                fb.chunk_provenance = [
+                    ChunkProvenance(
+                        chunk_index=1,
+                        total_chunks=1,
+                        file_paths=[f.path for f in packet.changed_files],
+                        attempts=[],
+                        resolved_engine="baseline-checklist",
+                        fallback_reason=None,
+                        findings_count=len(fb.findings),
+                    )
+                ]
+                return fb
 
         chunks = self._partition_into_chunks(packet)
 
@@ -596,11 +751,30 @@ class Reviewer:
                 )
 
             if is_timeout() and use_baseline_fallback:
-                fb = self.baseline.evaluate(packet)
-                fb.status = "fallback_baseline"
-                fb.error = "Workflow timeout exceeded before model execution. Fell back to baseline."
-                fb.model_name = f"{model_name}-fallback-baseline"
-                return fb
+                with start_tool_span(
+                    tool_name="ChecklistBaseline", reason="timeout_fallback"
+                ) as t_span:
+                    fb = self.baseline.evaluate(packet)
+                    t_span.set_data("baseline.findings_count", len(fb.findings))
+                    t_span.set_data(
+                        "baseline.retired_count", len(fb.retired_finding_ids)
+                    )
+                    t_span.set_status("ok")
+                    fb.status = "fallback_baseline"
+                    fb.error = "Workflow timeout exceeded before model execution. Fell back to baseline."
+                    fb.model_name = f"{model_name}-fallback-baseline"
+                    fb.chunk_provenance = [
+                        ChunkProvenance(
+                            chunk_index=1,
+                            total_chunks=1,
+                            file_paths=[f.path for f in packet.changed_files],
+                            attempts=[],
+                            resolved_engine="baseline-checklist",
+                            fallback_reason="timeout_fallback",
+                            findings_count=len(fb.findings),
+                        )
+                    ]
+                    return fb
 
             prompt_context = format_packet_for_prompt(packet)
             messages = [
@@ -612,17 +786,66 @@ class Reviewer:
             ]
 
             # Primary Model Attempt
+            single_attempts: list[ModelAttempt] = []
             try:
-                parsed, timings, raw_text, primary_err = self._invoke_single_model(
-                    model_name, messages
-                )
+                budget = get_remaining_budget()
+                if workflow_deadline and budget <= 0.5:
+                    parsed = None
+                    timings = {}
+                    raw_text = ""
+                    primary_err = (
+                        "Workflow deadline exceeded before primary model execution"
+                    )
+                    p_attempt = ModelAttempt(
+                        model=model_name or "gemma3:4b",
+                        outcome="timeout",
+                        duration_ms=0.0,
+                        error_detail=primary_err,
+                    )
+                else:
+                    parsed, timings, raw_text, primary_err, p_attempt = (
+                        self._invoke_single_model(
+                            model_name,
+                            messages,
+                            files_count=len(packet.changed_files),
+                            diff_chars=sum(len(f.diff) for f in packet.changed_files),
+                            timeout=budget,
+                        )
+                    )
+                single_attempts.append(p_attempt)
             except OllamaConnectionError as exc:
                 if use_baseline_fallback:
-                    fb = self.baseline.evaluate(packet)
-                    fb.status = "fallback_baseline"
-                    fb.error = f"Model '{model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
-                    fb.model_name = f"{model_name}-fallback-baseline"
-                    return fb
+                    with start_tool_span(
+                        tool_name="ChecklistBaseline", reason="connection_fallback"
+                    ) as t_span:
+                        fb = self.baseline.evaluate(packet)
+                        t_span.set_data("baseline.findings_count", len(fb.findings))
+                        t_span.set_data(
+                            "baseline.retired_count", len(fb.retired_finding_ids)
+                        )
+                        t_span.set_status("ok")
+                        fb.status = "fallback_baseline"
+                        fb.error = f"Model '{model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
+                        fb.model_name = f"{model_name}-fallback-baseline"
+                        fb.chunk_provenance = [
+                            ChunkProvenance(
+                                chunk_index=1,
+                                total_chunks=1,
+                                file_paths=[f.path for f in packet.changed_files],
+                                attempts=[
+                                    ModelAttempt(
+                                        model=model_name or "gemma3:4b",
+                                        outcome="connection_error",
+                                        duration_ms=0.0,
+                                        error_detail=str(exc),
+                                    )
+                                ],
+                                resolved_engine="baseline-checklist",
+                                fallback_reason="connection_fallback",
+                                findings_count=len(fb.findings),
+                            )
+                        ]
+                        return fb
                 return ReviewResult(
                     packet_id=packet.packet_id,
                     status="unavailable",
@@ -639,13 +862,25 @@ class Reviewer:
                 )
 
             if parsed is not None:
-                return self._process_model_json(
+                res = self._process_model_json(
                     parsed=parsed,
                     packet=packet,
                     model_name=model_name,
                     raw_text=raw_text,
                     timings=timings,
                 )
+                res.chunk_provenance = [
+                    ChunkProvenance(
+                        chunk_index=1,
+                        total_chunks=1,
+                        file_paths=[f.path for f in packet.changed_files],
+                        attempts=single_attempts,
+                        resolved_engine=model_name or "gemma3:4b",
+                        fallback_reason=None,
+                        findings_count=len(res.findings),
+                    )
+                ]
+                return res
 
             # Intermediate Fallback Model Attempt
             last_raw_text = raw_text
@@ -661,26 +896,89 @@ class Reviewer:
                         error="Review was cancelled",
                     )
                 if is_timeout() and use_baseline_fallback:
-                    fb = self.baseline.evaluate(packet)
-                    fb.status = "fallback_baseline"
-                    fb.error = f"{combined_err}; workflow timeout exceeded before fallback. Fell back to baseline."
-                    fb.model_name = f"{model_name}-fallback-baseline"
-                    return fb
+                    with start_tool_span(
+                        tool_name="ChecklistBaseline", reason="timeout_fallback"
+                    ) as t_span:
+                        fb = self.baseline.evaluate(packet)
+                        t_span.set_data("baseline.findings_count", len(fb.findings))
+                        t_span.set_data(
+                            "baseline.retired_count", len(fb.retired_finding_ids)
+                        )
+                        t_span.set_status("ok")
+                        fb.status = "fallback_baseline"
+                        fb.error = f"{combined_err}; workflow timeout exceeded before fallback. Fell back to baseline."
+                        fb.model_name = f"{model_name}-fallback-baseline"
+                        fb.chunk_provenance = [
+                            ChunkProvenance(
+                                chunk_index=1,
+                                total_chunks=1,
+                                file_paths=[f.path for f in packet.changed_files],
+                                attempts=single_attempts,
+                                resolved_engine="baseline-checklist",
+                                fallback_reason="timeout_fallback",
+                                findings_count=len(fb.findings),
+                            )
+                        ]
+                        return fb
 
                 # Single-resident policy: unload primary model from RAM before querying fallback
                 self.ollama_client.unload_model(model_name)
 
                 try:
-                    parsed_fb, timings_fb, raw_text_fb, fb_err = (
-                        self._invoke_single_model(fallback_model_name, messages)
-                    )
+                    fb_budget = get_remaining_budget()
+                    if workflow_deadline and fb_budget <= 0.5:
+                        parsed_fb = None
+                        timings_fb = {}
+                        raw_text_fb = ""
+                        fb_err = (
+                            "Workflow deadline exceeded before fallback model execution"
+                        )
+                        fb_attempt = ModelAttempt(
+                            model=fallback_model_name,
+                            outcome="timeout",
+                            duration_ms=0.0,
+                            error_detail=fb_err,
+                        )
+                    else:
+                        parsed_fb, timings_fb, raw_text_fb, fb_err, fb_attempt = (
+                            self._invoke_single_model(
+                                fallback_model_name,
+                                messages,
+                                is_fallback=True,
+                                files_count=len(packet.changed_files),
+                                diff_chars=sum(
+                                    len(f.diff) for f in packet.changed_files
+                                ),
+                                timeout=fb_budget,
+                            )
+                        )
+                    single_attempts.append(fb_attempt)
                 except OllamaConnectionError as exc:
                     if use_baseline_fallback:
-                        fb = self.baseline.evaluate(packet)
-                        fb.status = "fallback_baseline"
-                        fb.error = f"{combined_err} and Ollama connection failed ({exc}). Fell back to baseline."
-                        fb.model_name = f"{model_name}-fallback-baseline"
-                        return fb
+                        with start_tool_span(
+                            tool_name="ChecklistBaseline", reason="connection_fallback"
+                        ) as t_span:
+                            fb = self.baseline.evaluate(packet)
+                            t_span.set_data("baseline.findings_count", len(fb.findings))
+                            t_span.set_data(
+                                "baseline.retired_count", len(fb.retired_finding_ids)
+                            )
+                            t_span.set_status("ok")
+                            fb.status = "fallback_baseline"
+                            fb.error = f"{combined_err} and Ollama connection failed ({exc}). Fell back to baseline."
+                            fb.model_name = f"{model_name}-fallback-baseline"
+                            fb.chunk_provenance = [
+                                ChunkProvenance(
+                                    chunk_index=1,
+                                    total_chunks=1,
+                                    file_paths=[f.path for f in packet.changed_files],
+                                    attempts=single_attempts,
+                                    resolved_engine="baseline-checklist",
+                                    fallback_reason="connection_fallback",
+                                    findings_count=len(fb.findings),
+                                )
+                            ]
+                            return fb
                     return ReviewResult(
                         packet_id=packet.packet_id,
                         status="unavailable",
@@ -690,7 +988,7 @@ class Reviewer:
 
                 if parsed_fb is not None:
                     fallback_note = f"Primary model '{model_name}' failed ({primary_err}). Fell back to fallback model '{fallback_model_name}'."
-                    return self._process_model_json(
+                    res = self._process_model_json(
                         parsed=parsed_fb,
                         packet=packet,
                         model_name=fallback_model_name,
@@ -698,6 +996,18 @@ class Reviewer:
                         timings=timings_fb,
                         error=fallback_note,
                     )
+                    res.chunk_provenance = [
+                        ChunkProvenance(
+                            chunk_index=1,
+                            total_chunks=1,
+                            file_paths=[f.path for f in packet.changed_files],
+                            attempts=single_attempts,
+                            resolved_engine=fallback_model_name,
+                            fallback_reason=f"Primary model failed ({primary_err})",
+                            findings_count=len(res.findings),
+                        )
+                    ]
+                    return res
                 else:
                     last_raw_text = raw_text_fb or raw_text
                     last_timings = timings_fb or timings
@@ -707,12 +1017,41 @@ class Reviewer:
 
             # Safety Floor: Baseline Checklist
             if use_baseline_fallback:
-                fallback_result = self.baseline.evaluate(packet)
+                with start_tool_span(
+                    tool_name="ChecklistBaseline", reason="safety_floor"
+                ) as t_span:
+                    fallback_result = self.baseline.evaluate(packet)
+                    t_span.set_data(
+                        "baseline.findings_count", len(fallback_result.findings)
+                    )
+                    t_span.set_data(
+                        "baseline.retired_count",
+                        len(fallback_result.retired_finding_ids),
+                    )
+                    t_span.set_status("ok")
                 fallback_result.status = "fallback_baseline"
                 fallback_result.error = f"{combined_err}. Fell back to baseline."
                 fallback_result.model_name = f"{model_name}-fallback-baseline"
                 fallback_result.raw_content = last_raw_text
                 fallback_result.timing_ms = last_timings
+                fallback_result.chunk_provenance = [
+                    ChunkProvenance(
+                        chunk_index=1,
+                        total_chunks=1,
+                        file_paths=[f.path for f in packet.changed_files],
+                        attempts=single_attempts,
+                        resolved_engine="baseline-checklist",
+                        fallback_reason=(
+                            "timeout_fallback"
+                            if (
+                                is_timeout()
+                                or any(a.outcome == "timeout" for a in single_attempts)
+                            )
+                            else "safety_floor"
+                        ),
+                        findings_count=len(fallback_result.findings),
+                    )
+                ]
                 return fallback_result
 
             return ReviewResult(
@@ -722,6 +1061,17 @@ class Reviewer:
                 raw_content=last_raw_text,
                 error=combined_err,
                 timing_ms=last_timings,
+                chunk_provenance=[
+                    ChunkProvenance(
+                        chunk_index=1,
+                        total_chunks=1,
+                        file_paths=[f.path for f in packet.changed_files],
+                        attempts=single_attempts,
+                        resolved_engine="none",
+                        fallback_reason=combined_err,
+                        findings_count=0,
+                    )
+                ],
             )
 
         # 2. Multi-chunk Map-Reduce path
@@ -737,6 +1087,7 @@ class Reviewer:
         models_used: list[str] = []
         all_raw_chunks: list[dict] = []
         fallback_notes: list[str] = []
+        chunk_provenance: list[ChunkProvenance] = []
         timed_out = False
 
         for chunk_idx, chunk in enumerate(chunks, 1):
@@ -750,12 +1101,31 @@ class Reviewer:
 
             if is_timeout():
                 timed_out = True
-                fb_chunk = self.baseline.evaluate(chunk)
+                with start_tool_span(
+                    tool_name="ChecklistBaseline", reason="timeout_fallback"
+                ) as t_span:
+                    fb_chunk = self.baseline.evaluate(chunk)
+                    t_span.set_data("baseline.findings_count", len(fb_chunk.findings))
+                    t_span.set_data(
+                        "baseline.retired_count", len(fb_chunk.retired_finding_ids)
+                    )
+                    t_span.set_status("ok")
                 all_findings.extend(fb_chunk.findings)
                 all_retired_ids.extend(fb_chunk.retired_finding_ids)
                 models_used.append("baseline-checklist")
                 fallback_notes.append(
                     f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
+                )
+                chunk_provenance.append(
+                    ChunkProvenance(
+                        chunk_index=chunk_idx,
+                        total_chunks=len(chunks),
+                        file_paths=[f.path for f in chunk.changed_files],
+                        attempts=[],
+                        resolved_engine="baseline-checklist",
+                        fallback_reason="timeout_fallback",
+                        findings_count=len(fb_chunk.findings),
+                    )
                 )
                 continue
 
@@ -774,6 +1144,7 @@ class Reviewer:
                 },
             ]
 
+            chunk_attempts: list[ModelAttempt] = []
             chunk_parsed = None
             chunk_timings: dict[str, float] = {}
             chunk_raw_text = ""
@@ -781,16 +1152,44 @@ class Reviewer:
 
             # Primary Attempt
             try:
-                chunk_parsed, chunk_timings, chunk_raw_text, p_err = (
-                    self._invoke_single_model(chunk_model, messages)
-                )
+                budget = get_remaining_budget()
+                if workflow_deadline and budget <= 0.5:
+                    chunk_parsed = None
+                    p_err = "Workflow deadline exceeded before primary model execution"
+                    p_attempt = ModelAttempt(
+                        model=chunk_model,
+                        outcome="timeout",
+                        duration_ms=0.0,
+                        error_detail=p_err,
+                    )
+                else:
+                    chunk_parsed, chunk_timings, chunk_raw_text, p_err, p_attempt = (
+                        self._invoke_single_model(
+                            chunk_model,
+                            messages,
+                            chunk_index=chunk_idx,
+                            total_chunks=len(chunks),
+                            files_count=len(chunk.changed_files),
+                            diff_chars=sum(len(f.diff) for f in chunk.changed_files),
+                            timeout=budget,
+                        )
+                    )
+                chunk_attempts.append(p_attempt)
             except OllamaConnectionError as exc:
                 if use_baseline_fallback:
-                    fb = self.baseline.evaluate(packet)
-                    fb.status = "fallback_baseline"
-                    fb.error = f"Model '{chunk_model}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
-                    fb.model_name = f"{chunk_model}-fallback-baseline"
-                    return fb
+                    with start_tool_span(
+                        tool_name="ChecklistBaseline", reason="connection_fallback"
+                    ) as t_span:
+                        fb = self.baseline.evaluate(packet)
+                        t_span.set_data("baseline.findings_count", len(fb.findings))
+                        t_span.set_data(
+                            "baseline.retired_count", len(fb.retired_finding_ids)
+                        )
+                        t_span.set_status("ok")
+                        fb.status = "fallback_baseline"
+                        fb.error = f"Model '{chunk_model}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
+                        fb.model_name = f"{chunk_model}-fallback-baseline"
+                        return fb
                 return ReviewResult(
                     packet_id=packet.packet_id,
                     status="unavailable",
@@ -806,20 +1205,70 @@ class Reviewer:
             ):
                 if is_timeout():
                     timed_out = True
-                    fb_chunk = self.baseline.evaluate(chunk)
+                    with start_tool_span(
+                        tool_name="ChecklistBaseline", reason="timeout_fallback"
+                    ) as t_span:
+                        fb_chunk = self.baseline.evaluate(chunk)
+                        t_span.set_data(
+                            "baseline.findings_count", len(fb_chunk.findings)
+                        )
+                        t_span.set_data(
+                            "baseline.retired_count",
+                            len(fb_chunk.retired_finding_ids),
+                        )
+                        t_span.set_status("ok")
                     all_findings.extend(fb_chunk.findings)
                     all_retired_ids.extend(fb_chunk.retired_finding_ids)
                     models_used.append("baseline-checklist")
                     fallback_notes.append(
                         f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
                     )
+                    chunk_provenance.append(
+                        ChunkProvenance(
+                            chunk_index=chunk_idx,
+                            total_chunks=len(chunks),
+                            file_paths=[f.path for f in chunk.changed_files],
+                            attempts=chunk_attempts,
+                            resolved_engine="baseline-checklist",
+                            fallback_reason="timeout_fallback",
+                            findings_count=len(fb_chunk.findings),
+                        )
+                    )
+                    continue
                 else:
                     # Single-resident policy: unload primary model from RAM before loading fallback
                     self.ollama_client.unload_model(chunk_model)
                     try:
-                        chunk_parsed, chunk_timings, chunk_raw_text, fb_err = (
-                            self._invoke_single_model(fallback_model_name, messages)
-                        )
+                        fb_budget = get_remaining_budget()
+                        if workflow_deadline and fb_budget <= 0.5:
+                            chunk_parsed = None
+                            fb_err = "Workflow deadline exceeded before fallback model execution"
+                            fb_attempt = ModelAttempt(
+                                model=fallback_model_name,
+                                outcome="timeout",
+                                duration_ms=0.0,
+                                error_detail=fb_err,
+                            )
+                        else:
+                            (
+                                chunk_parsed,
+                                chunk_timings,
+                                chunk_raw_text,
+                                fb_err,
+                                fb_attempt,
+                            ) = self._invoke_single_model(
+                                fallback_model_name,
+                                messages,
+                                chunk_index=chunk_idx,
+                                total_chunks=len(chunks),
+                                is_fallback=True,
+                                files_count=len(chunk.changed_files),
+                                diff_chars=sum(
+                                    len(f.diff) for f in chunk.changed_files
+                                ),
+                                timeout=fb_budget,
+                            )
+                        chunk_attempts.append(fb_attempt)
                         if chunk_parsed is not None:
                             chunk_model = fallback_model_name
                             fallback_notes.append(
@@ -827,11 +1276,23 @@ class Reviewer:
                             )
                     except OllamaConnectionError as exc:
                         if use_baseline_fallback:
-                            fb = self.baseline.evaluate(packet)
-                            fb.status = "fallback_baseline"
-                            fb.error = f"Model '{fallback_model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
-                            fb.model_name = f"{model_name}-fallback-baseline"
-                            return fb
+                            with start_tool_span(
+                                tool_name="ChecklistBaseline",
+                                reason="connection_fallback",
+                            ) as t_span:
+                                fb = self.baseline.evaluate(packet)
+                                t_span.set_data(
+                                    "baseline.findings_count", len(fb.findings)
+                                )
+                                t_span.set_data(
+                                    "baseline.retired_count",
+                                    len(fb.retired_finding_ids),
+                                )
+                                t_span.set_status("ok")
+                                fb.status = "fallback_baseline"
+                                fb.error = f"Model '{fallback_model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
+                                fb.model_name = f"{model_name}-fallback-baseline"
+                                return fb
                         return ReviewResult(
                             packet_id=packet.packet_id,
                             status="unavailable",
@@ -855,14 +1316,52 @@ class Reviewer:
                 all_retired_ids.extend(chunk_res.retired_finding_ids)
                 models_used.append(chunk_model)
                 all_raw_chunks.append(chunk_parsed)
+                chunk_provenance.append(
+                    ChunkProvenance(
+                        chunk_index=chunk_idx,
+                        total_chunks=len(chunks),
+                        file_paths=[f.path for f in chunk.changed_files],
+                        attempts=chunk_attempts,
+                        resolved_engine=chunk_model,
+                        fallback_reason=None,
+                        findings_count=len(chunk_res.findings),
+                    )
+                )
             else:
                 # Fall back chunk to baseline
-                fb_chunk = self.baseline.evaluate(chunk)
+                fb_reason = (
+                    "timeout_fallback"
+                    if (
+                        is_timeout()
+                        or any(a.outcome == "timeout" for a in chunk_attempts)
+                    )
+                    else "schema_fallback"
+                )
+                with start_tool_span(
+                    tool_name="ChecklistBaseline", reason=fb_reason
+                ) as t_span:
+                    fb_chunk = self.baseline.evaluate(chunk)
+                    t_span.set_data("baseline.findings_count", len(fb_chunk.findings))
+                    t_span.set_data(
+                        "baseline.retired_count", len(fb_chunk.retired_finding_ids)
+                    )
+                    t_span.set_status("ok")
                 all_findings.extend(fb_chunk.findings)
                 all_retired_ids.extend(fb_chunk.retired_finding_ids)
                 models_used.append("baseline-checklist")
                 fallback_notes.append(
                     f"Chunk {chunk_idx}: fell back to baseline ({p_err})"
+                )
+                chunk_provenance.append(
+                    ChunkProvenance(
+                        chunk_index=chunk_idx,
+                        total_chunks=len(chunks),
+                        file_paths=[f.path for f in chunk.changed_files],
+                        attempts=chunk_attempts,
+                        resolved_engine="baseline-checklist",
+                        fallback_reason=fb_reason,
+                        findings_count=len(fb_chunk.findings),
+                    )
                 )
 
         # Deduplicate findings across chunks
@@ -905,6 +1404,7 @@ class Reviewer:
                         packet=packet,
                         all_findings=unique_findings,
                         model_name=synth_model,
+                        timeout=get_remaining_budget(),
                     )
                     for k in total_timings:
                         total_timings[k] += synth_timings.get(k, 0.0)
@@ -949,5 +1449,6 @@ class Reviewer:
             timing_ms=total_timings,
             raw_content=json.dumps(all_raw_chunks),
             raw_json={"chunks": all_raw_chunks},
+            chunk_provenance=chunk_provenance,
             error=error_msg,
         )

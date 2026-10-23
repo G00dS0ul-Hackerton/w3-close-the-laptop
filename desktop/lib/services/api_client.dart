@@ -249,9 +249,61 @@ class SteadyDevApiClient {
     }
   }
 
+  /// Fetch real-time or last completed review diagnostics.
+  Future<ReviewDiagnosticsData?> getReviewDiagnostics() async {
+    final res = await _safeGet(Uri.parse('$baseUrl/api/review/diagnostics'));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return ReviewDiagnosticsData.fromJson(data);
+    }
+    return null;
+  }
+
+  /// Fetch Sentry opt-in telemetry configuration and delivery status.
+  Future<TelemetryConfigData?> getTelemetryConfig() async {
+    final res = await _safeGet(Uri.parse('$baseUrl/api/telemetry/config'));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return TelemetryConfigData.fromJson(data);
+    }
+    return null;
+  }
+
+  /// Update Sentry opt-in telemetry configuration.
+  Future<TelemetryConfigData?> updateTelemetryConfig({
+    required bool enabled,
+    String? dsn,
+  }) async {
+    final payload = <String, dynamic>{'enabled': enabled};
+    if (dsn != null) {
+      payload['dsn'] = dsn;
+    }
+    final res = await _safePost(
+      Uri.parse('$baseUrl/api/telemetry/config'),
+      body: jsonEncode(payload),
+    );
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return TelemetryConfigData.fromJson(data);
+    }
+    return null;
+  }
+
   /// Request cancellation of current review.
   Future<void> cancelCurrentReview() async {
     await _safePost(Uri.parse('$baseUrl/api/review/cancel'));
+  }
+
+  /// Pause review execution for this repository session.
+  Future<void> pauseSession(String repoPath) async {
+    final body = jsonEncode({'repo_path': repoPath});
+    await _safePost(Uri.parse('$baseUrl/api/session/pause'), body: body);
+  }
+
+  /// Resume review execution for this repository session.
+  Future<void> resumeSession(String repoPath) async {
+    final body = jsonEncode({'repo_path': repoPath});
+    await _safePost(Uri.parse('$baseUrl/api/session/resume'), body: body);
   }
 
   /// Fetch active session state from SQLite store.
