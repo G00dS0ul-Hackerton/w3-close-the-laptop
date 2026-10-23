@@ -28,6 +28,7 @@ class SessionView extends StatelessWidget {
   final VoidCallback? onSelectRepo;
   final String? selectedModel;
   final VoidCallback? onSelectModel;
+  final VoidCallback? onCancelReview;
 
   const SessionView({
     super.key,
@@ -52,6 +53,7 @@ class SessionView extends StatelessWidget {
     this.onSelectRepo,
     this.selectedModel,
     this.onSelectModel,
+    this.onCancelReview,
   });
 
   Widget _buildBadge(BuildContext context, FindingItem f) {
@@ -728,11 +730,7 @@ class SessionView extends StatelessWidget {
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: tokens.primaryText),
                         ),
                         Text(
-                          isReviewing
-                              ? 'Reviewing snapshot...'
-                              : isPaused
-                                  ? 'Review paused'
-                                  : quietStatus,
+                          isPaused ? 'Review paused' : quietStatus,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 12, color: tokens.secondaryText),
                         ),
@@ -787,11 +785,18 @@ class SessionView extends StatelessWidget {
                           tooltip: 'Select review model',
                           onPressed: isReviewing ? null : onSelectModel,
                         ),
-                      IconButton(
-                        icon: Icon(isPaused ? Icons.play_arrow : Icons.pause, size: 20),
-                        tooltip: isPaused ? 'Resume quiet review' : 'Pause quiet review',
-                        onPressed: onTogglePause,
-                      ),
+                      if (isReviewing && onCancelReview != null)
+                        IconButton(
+                          icon: const Icon(Icons.stop, size: 20, color: Color(0xFFEF4444)),
+                          tooltip: 'Stop review and free memory',
+                          onPressed: onCancelReview,
+                        )
+                      else
+                        IconButton(
+                          icon: Icon(isPaused ? Icons.play_arrow : Icons.pause, size: 20),
+                          tooltip: isPaused ? 'Resume quiet review' : 'Pause quiet review',
+                          onPressed: onTogglePause,
+                        ),
                     ],
                   ),
                 ],

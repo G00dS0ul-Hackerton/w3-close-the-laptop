@@ -230,17 +230,16 @@ def test_distill_unified_diff_strips_boilerplate() -> None:
     assert "@@ -1,15 +1,18 @@" in distilled
     # Git metadata stripped
     assert "index 1234567" not in distilled
-    # Collapsed imports
+    # Imports preserved intact
     assert "import os" in distilled
     assert "import sys" in distilled
-    assert "[... 2 more imports]" in distilled
-    # Semantic change preserved
+    assert "import json" in distilled
+    # Semantic change and original indentation preserved
     assert "def calculate(x: int) -> int:" in distilled
-    # Indentation compressed
-    assert "        def calculate" not in distilled
-    # Whitespace and closing delimiters stripped
-    assert "+        }" not in distilled
-    assert "+        );" not in distilled
+    assert "        def calculate" in distilled
+    # Delimiters preserved
+    assert "+        }" in distilled
+    assert "+        );" in distilled
 
 
 def test_distill_c6_multi_file_preservation() -> None:
@@ -265,3 +264,33 @@ def test_distill_c6_multi_file_preservation() -> None:
     for i in range(1, 7):
         assert f"src/file{i}.py" in paths
     assert packet.truncated is True
+
+
+def test_distill_preserves_faithful_indentation_and_delimiters() -> None:
+    """R13: Unified diff hunks must retain original indentation, imports, and delimiters."""
+    raw_diff = """diff --git a/src/calc.py b/src/calc.py
+--- a/src/calc.py
++++ b/src/calc.py
+@@ -10,6 +10,12 @@
+ import os
++import sys
++from pathlib import Path
++
++def calculate(val):
++    if val > 0:
++        return {
++            "result": val * 2,
++        }
++    return None
+"""
+    distilled, _truncated = distill_unified_diff(raw_diff)
+    # Exact indentation must be preserved
+    assert "        return {" in distilled, "Indentation inside block must be preserved"
+    assert '            "result": val * 2,' in distilled, (
+        "Nested indentation must be preserved"
+    )
+    # Closing delimiters must not be stripped
+    assert "        }" in distilled, "Closing bracket must be preserved"
+    # Import lines must not be stripped
+    assert "+import sys" in distilled
+    assert "+from pathlib import Path" in distilled

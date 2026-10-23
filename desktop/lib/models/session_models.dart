@@ -355,3 +355,29 @@ class SessionData {
     );
   }
 }
+
+class ReviewProgressData {
+  final bool isReviewing;
+  final int currentChunk;
+  final int totalChunks;
+  final String currentFiles;
+  final String phase;
+
+  ReviewProgressData({
+    required this.isReviewing,
+    required this.currentChunk,
+    required this.totalChunks,
+    required this.currentFiles,
+    required this.phase,
+  });
+
+  factory ReviewProgressData.fromJson(Map<String, dynamic> json) {
+    return ReviewProgressData(
+      isReviewing: json['is_reviewing'] as bool? ?? false,
+      currentChunk: json['current_chunk'] as int? ?? 0,
+      totalChunks: json['total_chunks'] as int? ?? 0,
+      currentFiles: json['current_files'] as String? ?? '',
+      phase: json['phase'] as String? ?? 'idle',
+    );
+  }
+}

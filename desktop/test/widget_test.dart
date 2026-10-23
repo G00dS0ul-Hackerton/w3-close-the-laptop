@@ -1,10 +1,13 @@
 import 'package:desktop/main.dart';
 import 'package:desktop/theme/theme_manager.dart';
+import 'package:desktop/views/session_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('SteadyDev main scaffold renders brand and session view', (tester) async {
+  testWidgets('SteadyDev main scaffold renders brand and session view', (
+    tester,
+  ) async {
     final themeManager = ThemeManager();
     await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
     await tester.pumpAndSettle();
@@ -19,10 +22,17 @@ void main() {
 
     // Verify Today's Intention
     expect(find.text('TODAY’S INTENTION'), findsOneWidget);
-    expect(find.text('Fix the login redirect and make the dashboard work on mobile.'), findsOneWidget);
+    expect(
+      find.text(
+        'Fix the login redirect and make the dashboard work on mobile.',
+      ),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('Navigation switches between Session, Audit, and Closing views', (tester) async {
+  testWidgets('Navigation switches between Session, Audit, and Closing views', (
+    tester,
+  ) async {
     final themeManager = ThemeManager();
     await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
     await tester.pumpAndSettle();
@@ -49,7 +59,9 @@ void main() {
     expect(find.text('Stay in flow. Keep the thread.'), findsOneWidget);
   });
 
-  testWidgets('Intention editing dialog updates session intention text', (tester) async {
+  testWidgets('Intention editing dialog updates session intention text', (
+    tester,
+  ) async {
     final themeManager = ThemeManager();
     await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
     await tester.pumpAndSettle();
@@ -63,7 +75,10 @@ void main() {
     expect(find.text('Session intention'), findsOneWidget);
 
     // Enter updated intention
-    await tester.enterText(find.byType(TextFormField), 'Ship real Flutter vertical slice today');
+    await tester.enterText(
+      find.byType(TextFormField),
+      'Ship real Flutter vertical slice today',
+    );
     await tester.tap(find.text('Update intention'));
     await tester.pumpAndSettle();
 
@@ -71,7 +86,9 @@ void main() {
     expect(find.text('Ship real Flutter vertical slice today'), findsOneWidget);
   });
 
-  testWidgets('Evidence dialog opens with locator and disclaimers', (tester) async {
+  testWidgets('Evidence dialog opens with locator and disclaimers', (
+    tester,
+  ) async {
     final themeManager = ThemeManager();
     await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
     await tester.pumpAndSettle();
@@ -84,7 +101,10 @@ void main() {
 
     // Verify Evidence dialog
     expect(find.text('Evidence behind the finding'), findsOneWidget);
-    expect(find.text('Scoped evidence · bound to current working snapshot'), findsOneWidget);
+    expect(
+      find.text('Scoped evidence · bound to current working snapshot'),
+      findsOneWidget,
+    );
     expect(find.text('Limits of this finding'), findsOneWidget);
 
     // Close dialog
@@ -93,17 +113,64 @@ void main() {
     expect(find.text('Evidence behind the finding'), findsNothing);
   });
 
-  testWidgets('Responsive layout renders cleanly at 600px width without overflow', (tester) async {
-    final themeManager = ThemeManager();
-    tester.view.physicalSize = const Size(600, 900);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
+  testWidgets(
+    'Responsive layout renders cleanly at 600px width without overflow',
+    (tester) async {
+      final themeManager = ThemeManager();
+      tester.view.physicalSize = const Size(600, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
 
-    await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
+      await tester.pumpAndSettle();
 
-    // Expect no RenderFlex overflow errors thrown
-    expect(tester.takeException(), isNull);
-    expect(find.text('Stay in flow. Keep the thread.'), findsOneWidget);
-  });
+      // Expect no RenderFlex overflow errors thrown
+      expect(tester.takeException(), isNull);
+      expect(find.text('Stay in flow. Keep the thread.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'SessionView displays Stop button during active review and triggers cancel',
+    (tester) async {
+      bool cancelCalled = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SessionView(
+                repoName: 'test-repo',
+                intention: 'Testing stop button',
+                criteria: const ['Pass'],
+                findings: const [],
+                receipts: const [],
+                quietStatus: 'Reviewing...',
+                isReviewing: true,
+                isEnded: false,
+                isPaused: false,
+                isCleanWorkingTree: false,
+                isEngineOffline: false,
+                activeEngine: 'Gemma 3 (4B)',
+                onSelectRepo: () {},
+                onTriggerCheckpoint: () {},
+                onTogglePause: () {},
+                onNavigateToClosing: () {},
+                onUpdateIntention: (_) {},
+                onUpdateFindingStatus: (_, __, [___]) {},
+                onCancelReview: () => cancelCalled = true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byIcon(Icons.stop), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.stop));
+      await tester.pump();
+      expect(cancelCalled, isTrue);
+    },
+  );
 }

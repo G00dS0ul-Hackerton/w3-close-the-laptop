@@ -232,6 +232,28 @@ class SteadyDevApiClient {
     }
   }
 
+  /// Poll current chunked review progress.
+  Future<ReviewProgressData> getReviewProgress() async {
+    final res = await _safeGet(Uri.parse('$baseUrl/api/review/progress'));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return ReviewProgressData.fromJson(data);
+    } else {
+      return ReviewProgressData(
+        isReviewing: false,
+        currentChunk: 0,
+        totalChunks: 0,
+        currentFiles: '',
+        phase: 'idle',
+      );
+    }
+  }
+
+  /// Request cancellation of current review.
+  Future<void> cancelCurrentReview() async {
+    await _safePost(Uri.parse('$baseUrl/api/review/cancel'));
+  }
+
   /// Fetch active session state from SQLite store.
   Future<SessionData> getActiveSession() async {
     final res = await _safeGet(Uri.parse('$baseUrl/api/session'));

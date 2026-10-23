@@ -1,5 +1,6 @@
 """Local Ollama HTTP client adapter with strict timeouts and error mappings."""
 
+import contextlib
 import os
 from typing import Any
 
@@ -111,8 +112,16 @@ class OllamaClient:
         try:
             resp = self._client.post(f"{self.base_url}/api/generate", json=payload)
             return resp.status_code in (200, 404)
-        except (httpx.ConnectError, httpx.TimeoutException):
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RequestError):
             return False
+
+    def cancel_active(self, active_model: str | None = None) -> None:
+        """Sever active HTTP socket connection and unload model from memory."""
+        with contextlib.suppress(httpx.HTTPError, OSError):
+            self._client.close()
+        self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout)
+        if active_model:
+            self.unload_model(active_model)
 
     def chat(
         self,
@@ -191,4 +200,8 @@ class OllamaClient:
             raise OllamaResponseError(
                 f"Inference request failed with HTTP {exc.response.status_code}",
                 status_code=exc.response.status_code,
+            ) from exc
+        except (httpx.RequestError, RuntimeError, OSError) as exc:
+            raise OllamaClientError(
+                f"Inference request aborted or socket closed: {exc}"
             ) from exc

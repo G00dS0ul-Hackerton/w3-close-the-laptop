@@ -662,12 +662,14 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
 
                 model_name = body.get("model", "gemma3:4b")
                 fallback_model = body.get("fallback_model", "qwen2.5-coder:3b")
+                workflow_timeout = body.get("workflow_timeout_seconds", 180.0)
                 result = self.server.reviewer.review(
                     packet,
                     model_name=model_name,
                     fallback_model_name=fallback_model,
                     progress_callback=on_progress,
                     is_cancelled=job.is_cancelled,
+                    workflow_timeout_seconds=workflow_timeout,
                 )
 
                 if job.is_cancelled() or result.status == "cancelled":
@@ -749,6 +751,8 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/review/cancel":
             with self.server._job_lock:
+                if hasattr(self.server.reviewer, "cancel_active"):
+                    self.server.reviewer.cancel_active()
                 if self.server._active_job is not None:
                     self.server._active_job.cancel()
                     self.server.reset_review_progress()

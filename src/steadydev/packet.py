@@ -182,17 +182,16 @@ def compress_line_indent(line: str) -> str:
 def distill_unified_diff(
     diff: str, max_lines: int = 60, max_bytes: int = 2500
 ) -> tuple[str, bool]:
-    """Distill diff hunks: strip repetitive boilerplate, condense imports/delimiters, compress indentation."""
+    """Preserve faithful diff hunks with accurate line locators, indentation, and delimiters.
+
+    Strips only non-semantic git index metadata lines and applies safe line/byte bounds.
+    """
     lines = diff.splitlines()
     distilled: list[str] = []
-    in_import_run = 0
 
     for l in lines:
         # 1. Preserve headers and hunk locators
         if l.startswith(("diff --git", "---", "+++", "@@")):
-            if in_import_run > 2:
-                distilled.append(f"+ // [... {in_import_run - 2} more imports]")
-            in_import_run = 0
             distilled.append(l)
             continue
 
@@ -200,32 +199,14 @@ def distill_unified_diff(
         if l.startswith(("index ", "new file mode ", "deleted file mode ")):
             continue
 
-        # 3. Collapse consecutive import blocks
-        if RE_IMPORT.match(l):
-            in_import_run += 1
-            if in_import_run <= 2:
-                distilled.append(compress_line_indent(l))
-            continue
-        elif in_import_run > 0:
-            if in_import_run > 2:
-                distilled.append(f"+ // [... {in_import_run - 2} more imports]")
-            in_import_run = 0
-
-        # 4. Strip pure whitespace additions/deletions/context
-        if l in ("+", "-", " "):
+        # 3. Strip pure empty lines without marker
+        if not l.strip() and l not in ("+", "-"):
             continue
 
-        # 5. Strip pure closing delimiter additions/deletions
-        if RE_CLOSING.match(l):
-            continue
+        # 4. Preserve original line intact (maintaining indentation, delimiters, imports, and syntax)
+        distilled.append(l)
 
-        # 6. Compress indentation and add
-        distilled.append(compress_line_indent(l))
-
-    if in_import_run > 2:
-        distilled.append(f"+ // [... {in_import_run - 2} more imports]")
-
-    # 7. Apply per-file line budget
+    # 5. Apply per-file line budget cleanly at line boundaries
     was_truncated = False
     if len(distilled) > max_lines:
         omitted = len(distilled) - max_lines

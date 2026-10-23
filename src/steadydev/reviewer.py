@@ -181,6 +181,11 @@ class Reviewer:
         self.ollama_client = ollama_client or OllamaClient()
         self.baseline = baseline or ChecklistBaseline()
         self.system_prompt = system_prompt or SYSTEM_PROMPT
+        self.active_model: str | None = None
+
+    def cancel_active(self) -> None:
+        """Abort active transport socket and unload resident model."""
+        self.ollama_client.cancel_active(active_model=self.active_model)
 
     def _invoke_single_model(
         self, model_name: str, messages: list[dict]
@@ -190,6 +195,7 @@ class Reviewer:
         Propagates OllamaConnectionError for short-circuiting.
         Returns (parsed_dict, timings, raw_text, error_message).
         """
+        self.active_model = model_name
         try:
             raw_response = self.ollama_client.chat(
                 model=model_name,
@@ -544,8 +550,21 @@ class Reviewer:
         use_baseline_fallback: bool = True,
         progress_callback: Callable[[int, int, str], None] | None = None,
         is_cancelled: Callable[[], bool] | None = None,
+        workflow_timeout_seconds: float | None = 180.0,
     ) -> ReviewResult:
-        """Execute review via Map-Reduce chunking with 3-tier cascade."""
+        """Execute review via Map-Reduce chunking with 3-tier cascade and bounded workflow budget."""
+        import time
+
+        start_time = time.monotonic()
+        workflow_deadline = (
+            start_time + workflow_timeout_seconds if workflow_timeout_seconds else None
+        )
+
+        def is_timeout() -> bool:
+            return (
+                workflow_deadline is not None and time.monotonic() > workflow_deadline
+            )
+
         if is_cancelled and is_cancelled():
             return ReviewResult(
                 packet_id=packet.packet_id,
@@ -575,6 +594,13 @@ class Reviewer:
                     model_name=model_name or "gemma3:4b",
                     error="Review was cancelled",
                 )
+
+            if is_timeout() and use_baseline_fallback:
+                fb = self.baseline.evaluate(packet)
+                fb.status = "fallback_baseline"
+                fb.error = "Workflow timeout exceeded before model execution. Fell back to baseline."
+                fb.model_name = f"{model_name}-fallback-baseline"
+                return fb
 
             prompt_context = format_packet_for_prompt(packet)
             messages = [
@@ -634,6 +660,16 @@ class Reviewer:
                         model_name=model_name or "gemma3:4b",
                         error="Review was cancelled",
                     )
+                if is_timeout() and use_baseline_fallback:
+                    fb = self.baseline.evaluate(packet)
+                    fb.status = "fallback_baseline"
+                    fb.error = f"{combined_err}; workflow timeout exceeded before fallback. Fell back to baseline."
+                    fb.model_name = f"{model_name}-fallback-baseline"
+                    return fb
+
+                # Single-resident policy: unload primary model from RAM before querying fallback
+                self.ollama_client.unload_model(model_name)
+
                 try:
                     parsed_fb, timings_fb, raw_text_fb, fb_err = (
                         self._invoke_single_model(fallback_model_name, messages)
@@ -701,6 +737,7 @@ class Reviewer:
         models_used: list[str] = []
         all_raw_chunks: list[dict] = []
         fallback_notes: list[str] = []
+        timed_out = False
 
         for chunk_idx, chunk in enumerate(chunks, 1):
             if is_cancelled and is_cancelled():
@@ -710,6 +747,18 @@ class Reviewer:
                     model_name=model_name or "gemma3:4b",
                     error="Review was cancelled",
                 )
+
+            if is_timeout():
+                timed_out = True
+                fb_chunk = self.baseline.evaluate(chunk)
+                all_findings.extend(fb_chunk.findings)
+                all_retired_ids.extend(fb_chunk.retired_finding_ids)
+                models_used.append("baseline-checklist")
+                fallback_notes.append(
+                    f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
+                )
+                continue
+
             file_names = ", ".join(
                 os.path.basename(f.path) for f in chunk.changed_files
             )
@@ -755,28 +804,40 @@ class Reviewer:
                 and fallback_model_name
                 and fallback_model_name != chunk_model
             ):
-                try:
-                    chunk_parsed, chunk_timings, chunk_raw_text, fb_err = (
-                        self._invoke_single_model(fallback_model_name, messages)
+                if is_timeout():
+                    timed_out = True
+                    fb_chunk = self.baseline.evaluate(chunk)
+                    all_findings.extend(fb_chunk.findings)
+                    all_retired_ids.extend(fb_chunk.retired_finding_ids)
+                    models_used.append("baseline-checklist")
+                    fallback_notes.append(
+                        f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
                     )
-                    if chunk_parsed is not None:
-                        chunk_model = fallback_model_name
-                        fallback_notes.append(
-                            f"Chunk {chunk_idx}: fell back to {fallback_model_name} ({p_err})"
+                else:
+                    # Single-resident policy: unload primary model from RAM before loading fallback
+                    self.ollama_client.unload_model(chunk_model)
+                    try:
+                        chunk_parsed, chunk_timings, chunk_raw_text, fb_err = (
+                            self._invoke_single_model(fallback_model_name, messages)
                         )
-                except OllamaConnectionError as exc:
-                    if use_baseline_fallback:
-                        fb = self.baseline.evaluate(packet)
-                        fb.status = "fallback_baseline"
-                        fb.error = f"Model '{fallback_model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
-                        fb.model_name = f"{model_name}-fallback-baseline"
-                        return fb
-                    return ReviewResult(
-                        packet_id=packet.packet_id,
-                        status="unavailable",
-                        model_name=fallback_model_name,
-                        error=str(exc),
-                    )
+                        if chunk_parsed is not None:
+                            chunk_model = fallback_model_name
+                            fallback_notes.append(
+                                f"Chunk {chunk_idx}: fell back to {fallback_model_name} ({p_err})"
+                            )
+                    except OllamaConnectionError as exc:
+                        if use_baseline_fallback:
+                            fb = self.baseline.evaluate(packet)
+                            fb.status = "fallback_baseline"
+                            fb.error = f"Model '{fallback_model_name}' failed (OllamaConnectionError: {exc}). Fell back to baseline."
+                            fb.model_name = f"{model_name}-fallback-baseline"
+                            return fb
+                        return ReviewResult(
+                            packet_id=packet.packet_id,
+                            status="unavailable",
+                            model_name=fallback_model_name,
+                            error=str(exc),
+                        )
 
             # Accumulate timings
             for k in total_timings:
@@ -822,27 +883,45 @@ class Reviewer:
                 model_name=model_name or "gemma3:4b",
                 error="Review was cancelled",
             )
-        if progress_callback:
-            progress_callback(
-                len(chunks), len(chunks), "Synthesizing session checkpoint..."
-            )
-        synth_model = (
-            model_name
-            if any(m not in ("baseline", "baseline-checklist") for m in models_used)
-            else None
-        )
-        if synth_model:
-            summary, restart, synth_timings = self._synthesize_session_summary(
-                packet=packet,
-                all_findings=unique_findings,
-                model_name=synth_model,
-            )
-            for k in total_timings:
-                total_timings[k] += synth_timings.get(k, 0.0)
-        else:
+
+        if timed_out or is_timeout():
+            timed_out = True
             fb_full = self.baseline.evaluate(packet)
             summary = fb_full.closing_summary
             restart = fb_full.restart_note
+        else:
+            if progress_callback:
+                progress_callback(
+                    len(chunks), len(chunks), "Synthesizing session checkpoint..."
+                )
+            synth_model = (
+                model_name
+                if any(m not in ("baseline", "baseline-checklist") for m in models_used)
+                else None
+            )
+            if synth_model:
+                try:
+                    summary, restart, synth_timings = self._synthesize_session_summary(
+                        packet=packet,
+                        all_findings=unique_findings,
+                        model_name=synth_model,
+                    )
+                    for k in total_timings:
+                        total_timings[k] += synth_timings.get(k, 0.0)
+                except (
+                    OllamaClientError,
+                    json.JSONDecodeError,
+                    KeyError,
+                    ValueError,
+                    RuntimeError,
+                ):
+                    fb_full = self.baseline.evaluate(packet)
+                    summary = fb_full.closing_summary
+                    restart = fb_full.restart_note
+            else:
+                fb_full = self.baseline.evaluate(packet)
+                summary = fb_full.closing_summary
+                restart = fb_full.restart_note
 
         status = "findings_detected" if unique_findings else "clean"
         if all(m == "baseline-checklist" for m in models_used):
@@ -853,6 +932,10 @@ class Reviewer:
             if all(m == model_name for m in models_used)
             else f"{model_name}-chunked"
         )
+        if timed_out:
+            fallback_notes.insert(
+                0, "Workflow timeout exceeded; partial chunks preserved."
+            )
         error_msg = "; ".join(fallback_notes) if fallback_notes else None
 
         return ReviewResult(

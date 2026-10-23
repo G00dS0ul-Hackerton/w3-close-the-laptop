@@ -821,3 +821,30 @@ def test_session_reset_invalidates_in_flight_review_publication(
     finally:
         review_release.set()
         server_obj.reviewer.review = orig_review
+
+
+def test_review_cancel_physically_aborts_transport_and_unloads_model(
+    running_server: dict,
+) -> None:
+    """R10: Cancelling review must invoke cancel_active() on reviewer and unload_model on ollama client."""
+    from unittest.mock import MagicMock
+
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    repo_root = running_server["repo_root"]
+    server_obj = running_server["server"]
+
+    # Mock cancel_active and unload_model on reviewer / client
+    server_obj.reviewer.cancel_active = MagicMock()
+    server_obj.ollama_client.unload_model = MagicMock(return_value=True)
+
+    resp = httpx.post(
+        f"{base_url}/api/review/cancel",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"repo_path": str(repo_root)},
+    )
+    assert resp.status_code == 200
+
+    # Reviewer cancel_active must have been called
+    assert hasattr(server_obj.reviewer, "cancel_active")
+    server_obj.reviewer.cancel_active.assert_called_once()

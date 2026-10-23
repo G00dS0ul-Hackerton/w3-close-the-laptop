@@ -566,3 +566,106 @@ def test_reviewer_map_reduce_with_progress_callback() -> None:
     assert progress_events[1][1] == 2
     assert "file3.py" in progress_events[1][2]
     assert "Synthesizing" in progress_events[2][2]
+
+
+def test_fallback_unloads_primary_model_before_secondary() -> None:
+    """R11: When primary model fails, unload_model must be called before querying fallback."""
+    mock_client = MagicMock(spec=OllamaClient)
+
+    # Primary fails with malformed JSON; fallback succeeds
+    call_order: list[str] = []
+
+    def mock_chat(model: str, *args, **kwargs):
+        call_order.append(f"chat:{model}")
+        if model == "gemma3:4b":
+            return {"content": "not-valid-json", "total_duration_ms": 100.0}
+        return {
+            "content": '{"status": "clean", "findings": [], "closing_summary": "Qwen clean", "restart_note": "Qwen note"}',
+            "total_duration_ms": 100.0,
+        }
+
+    def mock_unload(model: str):
+        call_order.append(f"unload:{model}")
+        return True
+
+    mock_client.chat.side_effect = mock_chat
+    mock_client.unload_model.side_effect = mock_unload
+
+    packet = ReviewPacket(
+        packet_id="pkt-unload",
+        timestamp_utc="2026-10-23T00:00:00Z",
+        repo_name="repo",
+        session_intention="Test unload",
+        acceptance_criteria=["Pass"],
+        changed_files=[ChangedFile(path="src/app.py", diff="+print(1)\n")],
+    )
+
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(
+        packet, model_name="gemma3:4b", fallback_model_name="qwen2.5-coder:3b"
+    )
+
+    assert res.status == "clean"
+    # Assert that unload:gemma3:4b occurred before chat:qwen2.5-coder:3b
+    assert "unload:gemma3:4b" in call_order
+    unload_idx = call_order.index("unload:gemma3:4b")
+    qwen_idx = call_order.index("chat:qwen2.5-coder:3b")
+    assert unload_idx < qwen_idx, "Primary model must be unloaded before fallback runs"
+
+
+def test_workflow_budget_timeout_preserves_completed_chunks_and_uses_baseline_floor() -> (
+    None
+):
+    """R12: Total workflow budget expiry preserves completed chunk findings and falls back to baseline."""
+    mock_client = MagicMock(spec=OllamaClient)
+
+    chunk1_json = '{"status": "findings_detected", "findings": [{"category": "unverified", "locator": "src/file1.py:5", "description": "Chunk 1 finding"}], "closing_summary": "c1", "restart_note": "r1"}'
+
+    # First call succeeds for chunk 1; second call would be chunk 2
+    mock_client.chat.side_effect = [
+        {"content": chunk1_json, "total_duration_ms": 100.0},
+    ]
+
+    files = [
+        ChangedFile(path="src/file1.py", diff="+x1 = 1\n"),
+        ChangedFile(path="src/file2.py", diff="+x2 = 2\n"),
+        ChangedFile(path="src/file3.py", diff="+x3 = 3\n"),
+        ChangedFile(path="src/file4.py", diff="+x4 = 4\n"),
+    ]
+    packet = ReviewPacket(
+        packet_id="pkt-budget",
+        timestamp_utc="2026-10-23T00:00:00Z",
+        repo_name="repo",
+        session_intention="Test budget",
+        acceptance_criteria=["Verify 4 files"],
+        changed_files=files,
+    )
+
+    reviewer = Reviewer(ollama_client=mock_client)
+    from unittest.mock import patch
+
+    current_time = [0.0]
+
+    def advancing_monotonic():
+        return current_time[0]
+
+    def mock_chat_advance(*args, **kwargs):
+        # Advance time past workflow deadline during chunk 1 execution
+        current_time[0] = 500.0
+        return {"content": chunk1_json, "total_duration_ms": 100.0}
+
+    mock_client.chat.side_effect = mock_chat_advance
+
+    with patch("time.monotonic", side_effect=advancing_monotonic):
+        res = reviewer.review(
+            packet,
+            model_name="gemma3:4b",
+            workflow_timeout_seconds=5.0,
+        )
+
+    # Chunk 1's findings MUST be preserved
+    assert any(f.locator == "src/file1.py:5" for f in res.findings)
+    # Total calls to chat should not have attempted synthesis with Ollama
+    assert mock_client.chat.call_count <= 2
+    # Result must indicate partial timeout
+    assert "timeout" in (res.error or "").lower() or "timeout" in res.status.lower()

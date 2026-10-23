@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 
@@ -282,7 +283,31 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
       _quietStatus = 'Reviewing snapshot with Ollama...';
     });
 
+    Timer? progressTimer;
     if (widget.apiClient != null) {
+      progressTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+        if (!_isReviewing) {
+          timer.cancel();
+          return;
+        }
+        try {
+          final prog = await widget.apiClient!.getReviewProgress();
+          if (mounted && _isReviewing && prog.isReviewing) {
+            setState(() {
+              if (prog.totalChunks > 1) {
+                if (prog.phase == 'synthesizing') {
+                  _quietStatus = 'Synthesizing session checkpoint...';
+                } else if (prog.currentFiles.isNotEmpty) {
+                  _quietStatus = 'Reviewing ${prog.currentFiles} (${prog.currentChunk}/${prog.totalChunks})...';
+                }
+              } else if (prog.currentFiles.isNotEmpty) {
+                _quietStatus = 'Reviewing ${prog.currentFiles}...';
+              }
+            });
+          }
+        } catch (_) {}
+      });
+
       try {
         final res = await widget.apiClient!.requestReview(
           repoPath: _repoPath,
@@ -346,6 +371,8 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
         setState(() {
           _quietStatus = 'Review error: $e';
         });
+      } finally {
+        progressTimer.cancel();
       }
     } else {
       // Offline fallback simulation
@@ -357,6 +384,18 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
 
     setState(() {
       _isReviewing = false;
+    });
+  }
+
+  Future<void> _handleCancelReview() async {
+    if (!_isReviewing) return;
+    try {
+      await widget.apiClient?.cancelCurrentReview();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _isReviewing = false;
+      _quietStatus = 'Review stopped · Memory unloaded';
     });
   }
 
@@ -694,6 +733,7 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                           onSelectRepo: _openSelectRepoDialog,
                           onTriggerCheckpoint: _triggerCheckpoint,
                           onTogglePause: () => setState(() => _isPaused = !_isPaused),
+                          onCancelReview: _handleCancelReview,
                           onNavigateToClosing: () => setState(() => _activeView = 'closing'),
                           onUpdateIntention: (val) {
                             setState(() => _intention = val);
