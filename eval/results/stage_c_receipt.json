@@ -1,0 +1,151 @@
+{
+  "timestamp": "2026-10-23T13:45:03.816010+00:00",
+  "baseline": {
+    "pkt-eval-t02": {
+      "name": "Case 1 (Mismatch)",
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "Tomorrow: Continue 'Update post-login flow to redirect authenticated users to /dashboard' by verifying modified files (src/views.py) against remaining acceptance criteria. (No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.)",
+      "elapsed_ms": 0.2849000011337921,
+      "eval_3layer": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "MISSED_GAP",
+          "detail": "Missed semantic route redirect contradiction."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "HIGH_CONTINUITY",
+          "notes": [
+            "Identified concrete, specific next steps for tomorrow."
+          ]
+        }
+      }
+    },
+    "pkt-eval-t01": {
+      "name": "Case 2 (Clean Negative)",
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "closing_summary": "Baseline Checklist Review: 2 files modified, 1 checks recorded, 0 unverified gaps.",
+      "restart_note": "Tomorrow: Continue 'Refactor user authentication token expiration helper' by verifying modified files (src/auth.py, tests/test_auth.py) against remaining acceptance criteria. (No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.)",
+      "elapsed_ms": 0.052100003813393414,
+      "eval_3layer": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "CORRECT_CLEAN",
+          "detail": "Zero false alarms emitted on clean session."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      }
+    }
+  },
+  "model_qwen": {
+    "pkt-eval-t02": {
+      "name": "Case 1 (Mismatch)",
+      "status": "clean",
+      "findings_count": 0,
+      "findings": [],
+      "closing_summary": "The post-login flow has been updated to redirect authenticated users to /dashboard. Route redirect tests have passed.",
+      "restart_note": "",
+      "wall_s": 67.1653801999928,
+      "timing_ms": {
+        "total_duration_ms": 67155.883,
+        "load_duration_ms": 13485.4399,
+        "prompt_eval_duration_ms": 41724.25,
+        "eval_duration_ms": 11894.13
+      },
+      "eval_3layer": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "MISSED_GAP",
+          "detail": "Missed semantic route redirect contradiction."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "EMPTY_RESTART_NOTE",
+          "notes": [
+            "Empty restart note emitted by model."
+          ]
+        }
+      },
+      "error": null
+    },
+    "pkt-eval-t01": {
+      "name": "Case 2 (Clean Negative)",
+      "status": "findings_detected",
+      "findings_count": 1,
+      "findings": [
+        {
+          "finding_id": "m-retire-err-1",
+          "category": "needs_judgment",
+          "locator": "prior_findings",
+          "description": "Unsupported retirement ID 'rcpt-t01-01' does not match any prior finding.",
+          "evidence": "Proposed retirement ID: 'rcpt-t01-01'",
+          "status": "open",
+          "validation_error": "Unknown prior finding ID 'rcpt-t01-01'",
+          "is_stale": false,
+          "stale_reason": null,
+          "user_reason": null,
+          "retired_by_receipt_id": null
+        }
+      ],
+      "closing_summary": "The user authentication token expiration helper was refactored to validate the token's expiry timestamp against current UTC time, and unit test coverage passed with exit code 0.",
+      "restart_note": "No further action needed.",
+      "wall_s": 69.35516069999721,
+      "timing_ms": {
+        "total_duration_ms": 69353.1954,
+        "load_duration_ms": 6439.8844,
+        "prompt_eval_duration_ms": 45841.953,
+        "eval_duration_ms": 17027.607
+      },
+      "eval_3layer": {
+        "screening_mode": "AUTOMATED_SCREENING",
+        "semantic_review_status": "NOT_REVIEWED",
+        "layer1_findings": {
+          "screening_verdict": "FALSE_ALARM",
+          "detail": "Emitted 1 ungrounded findings on clean code."
+        },
+        "layer2_summary": {
+          "screening_verdict": "FACTUAL_ACCOUNTING",
+          "notes": [
+            "Truthful diff and check accounting"
+          ]
+        },
+        "layer3_restart": {
+          "screening_verdict": "ACTIONABLE_CONTINUITY",
+          "notes": [
+            "Actionable next steps provided"
+          ]
+        }
+      },
+      "error": null
+    }
+  }
+}
