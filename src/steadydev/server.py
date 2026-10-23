@@ -5,6 +5,7 @@ import secrets
 import sqlite3
 import sys
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,22 @@ from steadydev.models import CheckReceipt, Finding
 from steadydev.ollama_client import OllamaClient, OllamaClientError
 from steadydev.reviewer import Reviewer
 from steadydev.store import SessionStore
+
+
+class ReviewJob:
+    """Encapsulates job authority and cancellation predicate for a review."""
+
+    def __init__(self, job_id: str, repo_path: str, session_id: str) -> None:
+        self.job_id = job_id
+        self.repo_path = repo_path
+        self.session_id = session_id
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def is_cancelled(self) -> bool:
+        return self._cancelled.is_set()
 
 
 class SteadyDevServer(ThreadingHTTPServer):
@@ -45,6 +62,8 @@ class SteadyDevServer(ThreadingHTTPServer):
         self.reviewer = reviewer or Reviewer(ollama_client=self.ollama_client)
         self.store = store or SessionStore(db_path=db_path)
         self._repo_lock = threading.Lock()
+        self._job_lock = threading.Lock()
+        self._active_job: ReviewJob | None = None
         self._is_reviewing = False
         self._review_lock = threading.Lock()
         self._review_progress: dict[str, Any] = {
@@ -330,13 +349,18 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            repo = self.server.authorized_repo_root
+            session = self.server.store.get_or_create_session(str(repo), repo.name)
             self.server.store.update_finding_status(
                 finding_id=finding_id,
                 status=status,
                 user_reason=user_reason,
                 retired_by_receipt_id=retired_by,
+                session_id=session["session_id"],
             )
-            f_updated = self.server.store.get_finding_by_id(finding_id)
+            f_updated = self.server.store.get_finding_by_id(
+                finding_id, session_id=session["session_id"]
+            )
             if not f_updated:
                 self.send_json(
                     404,
@@ -510,6 +534,9 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             repo_path = self._validate_requested_repo(body.get("repo_path"))
             if not repo_path:
                 return
+            with self.server._job_lock:
+                if self.server._active_job is not None:
+                    self.server._active_job.cancel()
             session = self.server.store.get_or_create_session(
                 str(repo_path), repo_path.name
             )
@@ -522,6 +549,9 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             repo_path = self._validate_requested_repo(body.get("repo_path"))
             if not repo_path:
                 return
+            with self.server._job_lock:
+                if self.server._active_job is not None:
+                    self.server._active_job.cancel()
             intention = body.get("intention", "Review current session changes")
             criteria = body.get("criteria", [])
             fresh_session = self.server.store.reset_session(
@@ -543,18 +573,37 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             if not repo_path:
                 return
 
+            with self.server._job_lock:
+                if self.server._active_job is not None:
+                    self.send_json(
+                        409,
+                        {
+                            "error": "conflict",
+                            "message": "Review already in progress",
+                        },
+                    )
+                    return
+                session = self.server.store.get_or_create_session(
+                    str(repo_path), repo_path.name
+                )
+                job = ReviewJob(
+                    job_id=f"job-{uuid.uuid4().hex[:8]}",
+                    repo_path=str(repo_path),
+                    session_id=session["session_id"],
+                )
+                self.server._active_job = job
+                self.server._is_reviewing = True
+
             def on_progress(cur: int, tot: int, files: str) -> None:
+                if job.is_cancelled():
+                    return
                 phase = "synthesizing" if "Synthesizing" in files else "auditing"
                 self.server.update_review_progress(cur, tot, files, phase=phase)
 
-            self.server._is_reviewing = True
             self.server.update_review_progress(
                 0, 1, "Starting snapshot review...", phase="starting"
             )
             try:
-                session = self.server.store.get_or_create_session(
-                    str(repo_path), repo_path.name
-                )
                 intention = body.get("session_intention") or session.get(
                     "intention", "Review current session changes"
                 )
@@ -600,6 +649,17 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     )
                     return
 
+                if job.is_cancelled():
+                    self.send_json(
+                        409,
+                        {
+                            "error": "conflict",
+                            "message": "Review was cancelled before inference",
+                            "status": "cancelled",
+                        },
+                    )
+                    return
+
                 model_name = body.get("model", "gemma3:4b")
                 fallback_model = body.get("fallback_model", "qwen2.5-coder:3b")
                 result = self.server.reviewer.review(
@@ -607,7 +667,37 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     model_name=model_name,
                     fallback_model_name=fallback_model,
                     progress_callback=on_progress,
+                    is_cancelled=job.is_cancelled,
                 )
+
+                if job.is_cancelled() or result.status == "cancelled":
+                    self.send_json(
+                        409,
+                        {
+                            "error": "conflict",
+                            "message": "Review was cancelled; results discarded",
+                            "status": "cancelled",
+                        },
+                    )
+                    return
+
+                # Re-verify session in database before publishing
+                current_sess = self.server.store.get_or_create_session(
+                    str(repo_path), repo_path.name
+                )
+                if (
+                    current_sess["session_id"] != session["session_id"]
+                    or current_sess.get("status") == "finalized"
+                ):
+                    self.send_json(
+                        409,
+                        {
+                            "error": "conflict",
+                            "message": "Session was reset or closed during review; results discarded",
+                            "status": "cancelled",
+                        },
+                    )
+                    return
 
                 # Persist snapshot, receipts, and findings to SQLite store
                 head_sha = packet.git_head_sha or "0" * 40
@@ -627,27 +717,49 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
 
                 if result.retired_finding_ids:
                     for rid in result.retired_finding_ids:
-                        self.server.store.update_finding_status(rid, "evidence-retired")
+                        self.server.store.update_finding_status(
+                            finding_id=rid,
+                            status="evidence-retired",
+                            session_id=session["session_id"],
+                        )
 
-                # Update restart note only if user has not edited it
-                if session.get("is_note_user_edited", 0) == 0 and result.restart_note:
+                # Update restart note only if user has not edited it in the database
+                fresh_note_sess = self.server.store.get_or_create_session(
+                    str(repo_path), repo_path.name
+                )
+                if (
+                    fresh_note_sess.get("is_note_user_edited", 0) == 0
+                    and result.restart_note
+                ):
                     self.server.store.save_restart_note(
                         session["session_id"], result.restart_note, is_user_edited=False
                     )
                 else:
-                    # Keep user-edited restart note in response
-                    result.restart_note = session.get(
+                    result.restart_note = fresh_note_sess.get(
                         "restart_note", result.restart_note
                     )
 
                 self.send_json(200, result.model_dump(mode="json"))
             finally:
-                self.server._is_reviewing = False
-                self.server.reset_review_progress()
+                with self.server._job_lock:
+                    if self.server._active_job is job:
+                        self.server._active_job = None
+                        self.server._is_reviewing = False
+                        self.server.reset_review_progress()
 
         elif self.path == "/api/review/cancel":
-            self.server.reset_review_progress()
-            self.send_json(200, {"status": "cancelled", "message": "Review cancelled"})
+            with self.server._job_lock:
+                if self.server._active_job is not None:
+                    self.server._active_job.cancel()
+                    self.server.reset_review_progress()
+                    self.send_json(
+                        200, {"status": "cancelled", "message": "Review cancelled"}
+                    )
+                else:
+                    self.server.reset_review_progress()
+                    self.send_json(
+                        200, {"status": "cancelled", "message": "No review in progress"}
+                    )
 
         elif self.path == "/api/shutdown":
             self.send_json(200, {"status": "shutting_down"})

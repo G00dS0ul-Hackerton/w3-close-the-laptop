@@ -318,15 +318,31 @@ def compute_snapshot_fingerprint(
     # 2. Tracked diff hash
     if head_sha != "0" * 40:
         diff_proc = _run_git_cmd(
-            root, ["--no-pager", "diff", "--no-color", "--no-ext-diff", "HEAD"]
+            root,
+            [
+                "--no-pager",
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "HEAD",
+            ],
         )
     else:
         diff_proc = _run_git_cmd(
-            root, ["--no-pager", "diff", "--no-color", "--no-ext-diff", "--cached"]
+            root,
+            [
+                "--no-pager",
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--cached",
+            ],
         )
     diff_hash = hashlib.sha256(diff_proc.stdout.encode("utf-8")).hexdigest()
 
-    # 3. Untracked files hash
+    # 3. Untracked files hash (content-aware for eligible files)
     status_proc = _run_git_cmd(root, ["status", "--porcelain=v1", "-uall"])
     untracked_lines = sorted(
         [
@@ -335,8 +351,22 @@ def compute_snapshot_fingerprint(
             if line.startswith("?? ")
         ]
     )
+    untracked_entries: list[str] = []
+    for rel_path in untracked_lines:
+        file_path = root / rel_path
+        if file_path.is_file():
+            try:
+                # Bound read size to 32KB per file consistent with collector policy
+                content = file_path.read_bytes()[:32768]
+                c_hash = hashlib.sha256(content).hexdigest()
+                untracked_entries.append(f"{rel_path}:{c_hash}")
+            except OSError:
+                untracked_entries.append(f"{rel_path}:unreadable")
+        else:
+            untracked_entries.append(rel_path)
+
     untracked_hash = hashlib.sha256(
-        "\n".join(untracked_lines).encode("utf-8")
+        "\n".join(untracked_entries).encode("utf-8")
     ).hexdigest()
 
     # 4. Composite hash (16 chars)

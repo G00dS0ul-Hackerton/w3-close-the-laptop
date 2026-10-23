@@ -45,6 +45,7 @@ def running_server(temp_git_repo: Path):
         port=0,
         token="test-secret-token-12345",
         reviewer=MockReviewer(),  # type: ignore
+        db_path=temp_git_repo.parent / "server_test.db",
     )
     port = server.server_port
     token = server.token
@@ -54,7 +55,13 @@ def running_server(temp_git_repo: Path):
     time.sleep(0.05)  # Yield for server startup
 
     base_url = f"http://127.0.0.1:{port}"
-    yield {"base_url": base_url, "token": token, "repo_root": temp_git_repo}
+    yield {
+        "base_url": base_url,
+        "token": token,
+        "repo_root": temp_git_repo,
+        "server": server,
+        "store": server.store,
+    }
 
     server.shutdown()
     server.server_close()
@@ -458,3 +465,359 @@ def test_review_cancel_endpoint(running_server: dict) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "cancelled"
+
+
+def test_review_cancellation_revokes_write_authority_and_stops_persistence(
+    running_server: dict,
+) -> None:
+    """R01: Cancel during active review must revoke publication authority and stop persistence."""
+    import threading
+    from unittest.mock import MagicMock
+
+    from steadydev.models import Finding, FindingCategory, FindingStatus, ReviewResult
+
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    repo_root = running_server["repo_root"]
+    server_obj = running_server["server"]
+
+    review_started = threading.Event()
+    review_release = threading.Event()
+
+    mock_finding = Finding(
+        finding_id="fnd-cancelled-job",
+        category=FindingCategory.EVIDENCE_MISMATCH,
+        locator="src/foo.py:10",
+        description="Should not be saved",
+        status=FindingStatus.OPEN,
+    )
+    mock_result = ReviewResult(
+        packet_id="pkt-test",
+        status="findings_detected",
+        findings=[mock_finding],
+        closing_summary="Late summary",
+        restart_note="Late AI restart note",
+    )
+
+    def blocking_review(*args, **kwargs):
+        review_started.set()
+        review_release.wait(timeout=5.0)
+        return mock_result
+
+    orig_review = server_obj.reviewer.review
+    server_obj.reviewer.review = MagicMock(side_effect=blocking_review)
+
+    review_thread_response = []
+
+    def run_review_req():
+        r = httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "repo_path": str(repo_root),
+                "session_intention": "Cancel authority test",
+                "acceptance_criteria": ["Check authority"],
+            },
+            timeout=10.0,
+        )
+        review_thread_response.append(r)
+
+    th = threading.Thread(target=run_review_req, daemon=True)
+    try:
+        th.start()
+        assert review_started.wait(timeout=3.0), "Review did not start in time"
+
+        # 1. While reviewing, call cancel
+        cancel_resp = httpx.post(
+            f"{base_url}/api/review/cancel",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert cancel_resp.status_code == 200
+
+        # 2. User edits restart note while review is in-flight
+        note_resp = httpx.post(
+            f"{base_url}/api/session/note",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "repo_path": str(repo_root),
+                "restart_note": "User saved manual restart note",
+                "is_user_edited": True,
+            },
+        )
+        assert note_resp.status_code == 200
+
+        # 3. Release blocked review
+        review_release.set()
+        th.join(timeout=5.0)
+
+        # 4. Check database: finding must NOT be persisted and note must NOT be overwritten
+        session = server_obj.store.get_or_create_session(str(repo_root), repo_root.name)
+        findings = server_obj.store.get_findings(session["session_id"])
+        finding_ids = [f["finding_id"] for f in findings]
+        assert "fnd-cancelled-job" not in finding_ids, (
+            "Cancelled review findings must not be persisted"
+        )
+        assert session["restart_note"] == "User saved manual restart note", (
+            "User note must not be overwritten"
+        )
+    finally:
+        review_release.set()
+        server_obj.reviewer.review = orig_review
+
+
+def test_concurrent_review_rejected_with_conflict_409(running_server: dict) -> None:
+    """R02: A second review request while one is running must return 409 Conflict."""
+    import threading
+    from unittest.mock import MagicMock
+
+    from steadydev.models import ReviewResult
+
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    repo_root = running_server["repo_root"]
+    server_obj = running_server["server"]
+
+    review_started = threading.Event()
+    review_release = threading.Event()
+
+    def blocking_review(*args, **kwargs):
+        review_started.set()
+        review_release.wait(timeout=5.0)
+        return ReviewResult(
+            packet_id="pkt-1",
+            status="clean",
+            closing_summary="Done",
+            restart_note="Next",
+        )
+
+    orig_review = server_obj.reviewer.review
+    server_obj.reviewer.review = MagicMock(side_effect=blocking_review)
+
+    th = threading.Thread(
+        target=lambda: httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"repo_path": str(repo_root)},
+            timeout=10.0,
+        ),
+        daemon=True,
+    )
+    try:
+        th.start()
+        assert review_started.wait(timeout=3.0)
+
+        # Second review call should be rejected with 409
+        resp2 = httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"repo_path": str(repo_root)},
+        )
+        assert resp2.status_code == 409
+        assert resp2.json()["error"] == "conflict"
+        assert "already in progress" in resp2.json()["message"].lower()
+    finally:
+        review_release.set()
+        th.join(timeout=5.0)
+        server_obj.reviewer.review = orig_review
+
+
+def test_server_patch_finding_isolated_to_active_session(
+    running_server: dict, tmp_path: Path
+) -> None:
+    """R06: PATCH /api/findings/{id} must only update the finding in the active repository session."""
+    from steadydev.models import Finding, FindingCategory, FindingStatus
+
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    store = running_server["store"]
+    repo1 = running_server["repo_root"]
+
+    repo2 = tmp_path / "repo2"
+    repo2.mkdir()
+
+    sess1 = store.get_or_create_session(str(repo1), repo1.name)
+    sess2 = store.get_or_create_session(str(repo2), "repo2")
+    snap1 = store.save_snapshot(sess1["session_id"], "sha1", "d", "u", "c1")
+    snap2 = store.save_snapshot(sess2["session_id"], "sha2", "d", "u", "c2")
+
+    f1 = Finding(
+        finding_id="fnd-patch-iso",
+        category=FindingCategory.UNVERIFIED,
+        locator="src/a.py:1",
+        description="Desc",
+        status=FindingStatus.OPEN,
+    )
+    store.save_findings(sess1["session_id"], snap1, [f1])
+    store.save_findings(sess2["session_id"], snap2, [f1])
+
+    # Patch finding in active repo (repo1)
+    patch_resp = httpx.patch(
+        f"{base_url}/api/findings/fnd-patch-iso",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"status": "dismissed", "user_reason": "Not an issue"},
+    )
+    assert patch_resp.status_code == 200
+
+    # sess1 must be dismissed, sess2 must remain open
+    f_sess1 = store.get_findings(sess1["session_id"])[0]
+    f_sess2 = store.get_findings(sess2["session_id"])[0]
+    assert f_sess1["status"] == "dismissed"
+    assert f_sess2["status"] == "open", (
+        "Finding in session 2 must not be modified by session 1 PATCH"
+    )
+
+
+def test_cancellation_retains_worker_until_physical_completion(
+    running_server: dict,
+) -> None:
+    """R08: Calling cancel does not free worker slot while physical worker is still running."""
+    import threading
+    from unittest.mock import MagicMock
+
+    from steadydev.models import ReviewResult
+
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    repo_root = running_server["repo_root"]
+    server_obj = running_server["server"]
+
+    review_started = threading.Event()
+    review_release = threading.Event()
+
+    def blocking_review(*args, **kwargs):
+        review_started.set()
+        review_release.wait(timeout=5.0)
+        return ReviewResult(
+            packet_id="pkt-1",
+            status="clean",
+            closing_summary="Done",
+            restart_note="Next",
+        )
+
+    orig_review = server_obj.reviewer.review
+    server_obj.reviewer.review = MagicMock(side_effect=blocking_review)
+
+    th = threading.Thread(
+        target=lambda: httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"repo_path": str(repo_root)},
+            timeout=10.0,
+        ),
+        daemon=True,
+    )
+    try:
+        th.start()
+        assert review_started.wait(timeout=3.0)
+
+        # Call cancel
+        cancel_resp = httpx.post(
+            f"{base_url}/api/review/cancel",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert cancel_resp.status_code == 200
+
+        # While physical worker is still running, a second review MUST still be rejected with 409
+        resp2 = httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"repo_path": str(repo_root)},
+        )
+        assert resp2.status_code == 409
+        assert resp2.json()["error"] == "conflict"
+
+        # Now release the physical worker
+        review_release.set()
+        th.join(timeout=5.0)
+
+        # After physical worker exits, a subsequent review is admitted
+        resp3 = httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"repo_path": str(repo_root)},
+        )
+        assert resp3.status_code == 200
+    finally:
+        review_release.set()
+        server_obj.reviewer.review = orig_review
+
+
+def test_session_reset_invalidates_in_flight_review_publication(
+    running_server: dict,
+) -> None:
+    """R04: Resetting the session while a review is in flight cancels review authority."""
+    import threading
+    from unittest.mock import MagicMock
+
+    from steadydev.models import Finding, FindingCategory, FindingStatus, ReviewResult
+
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    repo_root = running_server["repo_root"]
+    server_obj = running_server["server"]
+
+    review_started = threading.Event()
+    review_release = threading.Event()
+
+    mock_finding = Finding(
+        finding_id="fnd-reset-job",
+        category=FindingCategory.EVIDENCE_MISMATCH,
+        locator="src/bar.py:10",
+        description="Should be discarded after reset",
+        status=FindingStatus.OPEN,
+    )
+    mock_result = ReviewResult(
+        packet_id="pkt-reset",
+        status="findings_detected",
+        findings=[mock_finding],
+        closing_summary="Reset summary",
+        restart_note="Reset AI note",
+    )
+
+    def blocking_review(*args, **kwargs):
+        review_started.set()
+        review_release.wait(timeout=5.0)
+        return mock_result
+
+    orig_review = server_obj.reviewer.review
+    server_obj.reviewer.review = MagicMock(side_effect=blocking_review)
+
+    review_res = []
+
+    def run_review():
+        r = httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"repo_path": str(repo_root)},
+            timeout=10.0,
+        )
+        review_res.append(r)
+
+    th = threading.Thread(target=run_review, daemon=True)
+    try:
+        th.start()
+        assert review_started.wait(timeout=3.0)
+
+        # Reset session mid-review
+        reset_resp = httpx.post(
+            f"{base_url}/api/session/reset",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"repo_path": str(repo_root), "intention": "Fresh intention"},
+        )
+        assert reset_resp.status_code == 200
+
+        review_release.set()
+        th.join(timeout=5.0)
+
+        assert len(review_res) == 1
+        assert review_res[0].status_code == 409
+
+        # Active session must be clean without fnd-reset-job
+        active_sess = server_obj.store.get_or_create_session(
+            str(repo_root), repo_root.name
+        )
+        findings = server_obj.store.get_findings(active_sess["session_id"])
+        assert "fnd-reset-job" not in [f["finding_id"] for f in findings]
+    finally:
+        review_release.set()
+        server_obj.reviewer.review = orig_review

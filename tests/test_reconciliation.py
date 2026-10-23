@@ -35,6 +35,21 @@ def test_compute_snapshot_fingerprint(temp_git_repo: Path) -> None:
     assert c_modified != composite_hash
 
 
+def test_untracked_content_change_invalidates_fingerprint(temp_git_repo: Path) -> None:
+    """Verify that editing the content of an existing untracked file changes the fingerprint."""
+    new_untracked = temp_git_repo / "new_feature.py"
+    new_untracked.write_text("x = 1\n", encoding="utf-8")
+
+    _h1, _d1, u1, c1 = compute_snapshot_fingerprint(temp_git_repo)
+
+    # Edit the content of the untracked file without renaming or adding new files
+    new_untracked.write_text("x = 2\nprint('changed')\n", encoding="utf-8")
+
+    _h2, _d2, u2, c2 = compute_snapshot_fingerprint(temp_git_repo)
+    assert u1 != u2, "Untracked hash must change when untracked file content changes"
+    assert c1 != c2, "Composite hash must change when untracked file content changes"
+
+
 def test_stable_content_addressed_finding_ids() -> None:
     """Verify stable, content-addressed IDs are deterministic across runs."""
     id1 = compute_finding_id(

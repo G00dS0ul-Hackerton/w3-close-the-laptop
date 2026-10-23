@@ -281,6 +281,47 @@ def test_multi_repo_finding_collision_resilience(
     assert len(store.get_findings(sess_a["session_id"])) == 1
 
 
+def test_cross_session_finding_status_isolation(
+    store: SessionStore, tmp_path: Path
+) -> None:
+    """Verify that updating a finding's status in session A does not mutate the same finding ID in session B."""
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    sess_a = store.get_or_create_session(str(repo_a), "repo_a")
+    sess_b = store.get_or_create_session(str(repo_b), "repo_b")
+
+    snap_a = store.save_snapshot(sess_a["session_id"], "shaA", "d", "u", "cA")
+    snap_b = store.save_snapshot(sess_b["session_id"], "shaB", "d", "u", "cB")
+
+    f_shared = Finding(
+        finding_id="fnd-cross-session",
+        category=FindingCategory.UNVERIFIED,
+        locator="src/shared.py:1",
+        description="Shared check",
+        status=FindingStatus.OPEN,
+    )
+
+    store.save_findings(sess_a["session_id"], snap_a, [f_shared])
+    store.save_findings(sess_b["session_id"], snap_b, [f_shared])
+
+    # Update in session A only, passing session_id
+    store.update_finding_status(
+        finding_id="fnd-cross-session",
+        status="user-reported-resolved",
+        user_reason="Resolved in session A",
+        session_id=sess_a["session_id"],
+    )
+
+    findings_a = store.get_findings(sess_a["session_id"])
+    findings_b = store.get_findings(sess_b["session_id"])
+
+    assert findings_a[0]["status"] == "user-reported-resolved"
+    assert findings_b[0]["status"] == "open", "Session B's finding must remain OPEN"
+
+
 def test_multi_repo_receipt_isolation(store: SessionStore, tmp_path: Path) -> None:
     """Verify check receipts in repo B do not overwrite receipts in repo A."""
     from steadydev.models import CheckReceipt

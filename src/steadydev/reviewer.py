@@ -543,8 +543,17 @@ class Reviewer:
         fallback_model_name: str | None = "qwen2.5-coder:3b",
         use_baseline_fallback: bool = True,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> ReviewResult:
         """Execute review via Map-Reduce chunking with 3-tier cascade."""
+        if is_cancelled and is_cancelled():
+            return ReviewResult(
+                packet_id=packet.packet_id,
+                status="cancelled",
+                model_name=model_name or "gemma3:4b",
+                error="Review was cancelled",
+            )
+
         # Baseline-only execution
         if not model_name or model_name in ("baseline", "baseline-checklist"):
             return self.baseline.evaluate(packet)
@@ -558,6 +567,14 @@ class Reviewer:
                     os.path.basename(f.path) for f in packet.changed_files
                 )
                 progress_callback(1, 1, file_names)
+
+            if is_cancelled and is_cancelled():
+                return ReviewResult(
+                    packet_id=packet.packet_id,
+                    status="cancelled",
+                    model_name=model_name or "gemma3:4b",
+                    error="Review was cancelled",
+                )
 
             prompt_context = format_packet_for_prompt(packet)
             messages = [
@@ -587,6 +604,14 @@ class Reviewer:
                     error=str(exc),
                 )
 
+            if is_cancelled and is_cancelled():
+                return ReviewResult(
+                    packet_id=packet.packet_id,
+                    status="cancelled",
+                    model_name=model_name or "gemma3:4b",
+                    error="Review was cancelled",
+                )
+
             if parsed is not None:
                 return self._process_model_json(
                     parsed=parsed,
@@ -602,6 +627,13 @@ class Reviewer:
             combined_err = f"Model '{model_name}' failed ({primary_err})"
 
             if fallback_model_name and fallback_model_name != model_name:
+                if is_cancelled and is_cancelled():
+                    return ReviewResult(
+                        packet_id=packet.packet_id,
+                        status="cancelled",
+                        model_name=model_name or "gemma3:4b",
+                        error="Review was cancelled",
+                    )
                 try:
                     parsed_fb, timings_fb, raw_text_fb, fb_err = (
                         self._invoke_single_model(fallback_model_name, messages)
@@ -671,6 +703,13 @@ class Reviewer:
         fallback_notes: list[str] = []
 
         for chunk_idx, chunk in enumerate(chunks, 1):
+            if is_cancelled and is_cancelled():
+                return ReviewResult(
+                    packet_id=packet.packet_id,
+                    status="cancelled",
+                    model_name=model_name or "gemma3:4b",
+                    error="Review was cancelled",
+                )
             file_names = ", ".join(
                 os.path.basename(f.path) for f in chunk.changed_files
             )
@@ -776,6 +815,13 @@ class Reviewer:
         unique_retired_ids = list(dict.fromkeys(all_retired_ids))
 
         # Synthesis step
+        if is_cancelled and is_cancelled():
+            return ReviewResult(
+                packet_id=packet.packet_id,
+                status="cancelled",
+                model_name=model_name or "gemma3:4b",
+                error="Review was cancelled",
+            )
         if progress_callback:
             progress_callback(
                 len(chunks), len(chunks), "Synthesizing session checkpoint..."
