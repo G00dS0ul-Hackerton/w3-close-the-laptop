@@ -931,9 +931,15 @@ def test_unlimited_workflow_timeout_and_live_diagnostics_elapsed_and_chunks(
         assert diag_resp.status_code == 200
         lc = diag_resp.json()
         assert lc["is_reviewing"] is True
-        assert lc["deadline_seconds"] is None, "Unlimited timeout must serialize deadline_seconds as None"
-        assert lc["elapsed_ms"] > 0.0, f"Expected live elapsed_ms > 0 during auditing, got {lc['elapsed_ms']}"
-        assert len(lc["chunk_diagnostics"]) == 1, "Expected Chunk 1 provenance to be visible mid-review"
+        assert lc["deadline_seconds"] is None, (
+            "Unlimited timeout must serialize deadline_seconds as None"
+        )
+        assert lc["elapsed_ms"] > 0.0, (
+            f"Expected live elapsed_ms > 0 during auditing, got {lc['elapsed_ms']}"
+        )
+        assert len(lc["chunk_diagnostics"]) == 1, (
+            "Expected Chunk 1 provenance to be visible mid-review"
+        )
         assert lc["chunk_diagnostics"][0]["resolved_engine"] == "qwen2.5-coder:3b"
 
         release_review.set()
@@ -943,4 +949,3 @@ def test_unlimited_workflow_timeout_and_live_diagnostics_elapsed_and_chunks(
     finally:
         release_review.set()
         server_obj.reviewer.review = orig_review
-

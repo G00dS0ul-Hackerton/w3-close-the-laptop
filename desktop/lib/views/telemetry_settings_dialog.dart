@@ -122,6 +122,8 @@ class _TelemetrySettingsDialogState extends State<TelemetrySettingsDialog> {
   Color _getBadgeColor(String state, SteadyDevThemeTokens tokens) {
     switch (state) {
       case 'verified_delivered':
+        return tokens.badgeConfirmedText;
+      case 'local_only':
         return tokens.brandAction;
       case 'staged_local':
       case 'flushing':

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/session_models.dart';
@@ -37,13 +39,27 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
   ReviewDiagnosticsData? _diagnostics;
   TelemetryConfigData? _telemetryConfig;
   bool _isLoading = false;
+  bool _isPollingInFlight = false;
   String? _errorMessage;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     _diagnostics = widget.initialData;
     _fetchDiagnostics();
+    // Start 1s live polling for countdown and chunk progress
+    if (widget.apiClient != null) {
+      _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        _pollDiagnosticsSilent();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchDiagnostics() async {
@@ -72,6 +88,30 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
           _errorMessage = e.toString();
         });
       }
+    }
+  }
+
+  /// Silent poll — no loading spinner, no error overwrite. Skips if another
+  /// poll is already in-flight (prevents request pile-up per O-3).
+  Future<void> _pollDiagnosticsSilent() async {
+    if (widget.apiClient == null) return;
+    if (_isPollingInFlight) return;
+    _isPollingInFlight = true;
+    try {
+      final diagFuture = widget.apiClient!.getReviewDiagnostics();
+      final telemFuture = widget.apiClient!.getTelemetryConfig();
+      final diag = await diagFuture;
+      final telem = await telemFuture;
+      if (mounted) {
+        setState(() {
+          _diagnostics = diag ?? _diagnostics;
+          _telemetryConfig = telem;
+        });
+      }
+    } catch (_) {
+      // Silent — do not overwrite existing data on transient errors
+    } finally {
+      _isPollingInFlight = false;
     }
   }
 
@@ -113,45 +153,68 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 20),
-            tooltip: 'Refresh diagnostics',
-            onPressed: _isLoading ? null : _fetchDiagnostics,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.apiClient != null)
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, size: 20),
+                  tooltip: 'Sentry Telemetry Settings',
+                  onPressed: () async {
+                    await TelemetrySettingsDialog.show(
+                      context,
+                      apiClient: widget.apiClient!,
+                      initialConfig: _telemetryConfig,
+                    );
+                    _fetchDiagnostics();
+                  },
+                ),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 20),
+                tooltip: 'Refresh diagnostics',
+                onPressed: _isLoading ? null : _fetchDiagnostics,
+              ),
+            ],
           ),
         ],
       ),
       content: SizedBox(
-        width: 620,
-        child: _isLoading && _diagnostics == null
-            ? const SizedBox(
-                height: 200,
-                child: Center(child: CircularProgressIndicator()),
-              )
-            : _errorMessage != null && _diagnostics == null
-                ? SizedBox(
-                    height: 150,
-                    child: Center(
-                      child: Text(
-                        _errorMessage!,
-                        style: TextStyle(color: tokens.badgeJudgmentText),
+        width: 640,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
+          ),
+          child: _isLoading && _diagnostics == null
+              ? const SizedBox(
+                  height: 200,
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              : _errorMessage != null && _diagnostics == null
+                  ? SizedBox(
+                      height: 150,
+                      child: Center(
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(color: tokens.badgeJudgmentText),
+                        ),
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildStatusCard(context, tokens),
+                          const SizedBox(height: 16),
+                          _buildChunkMatrix(context, tokens),
+                          const SizedBox(height: 16),
+                          _buildTelemetryExportCard(context, tokens),
+                          const SizedBox(height: 16),
+                          _buildOfflineFooter(context, tokens),
+                        ],
                       ),
                     ),
-                  )
-                : SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildStatusCard(context, tokens),
-                        const SizedBox(height: 16),
-                        _buildChunkMatrix(context, tokens),
-                        const SizedBox(height: 16),
-                        _buildTelemetryExportCard(context, tokens),
-                        const SizedBox(height: 16),
-                        _buildOfflineFooter(context, tokens),
-                      ],
-                    ),
-                  ),
+        ),
       ),
       actions: [
         TextButton(
@@ -166,9 +229,32 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
     final diag = _diagnostics;
     final phase = diag?.phase ?? 'idle';
     final elapsedS = (diag?.elapsedMs ?? 0.0) / 1000.0;
-    final deadlineS = diag?.deadlineSeconds ?? 180.0;
+    final deadlineS = diag?.deadlineSeconds;
+    final isUnlimited = deadlineS == null;
     final deadlineExceeded = diag?.deadlineExceeded ?? false;
-    final progressFraction = (elapsedS / deadlineS).clamp(0.0, 1.0);
+
+    // Progress fraction: 0..1 for bounded, null for indeterminate (Unlimited while reviewing)
+    final double? progressFraction;
+    if (isUnlimited) {
+      progressFraction = (diag?.isReviewing == true) ? null : 1.0;
+    } else {
+      progressFraction = (elapsedS / deadlineS).clamp(0.0, 1.0);
+    }
+
+    // Labels
+    final String budgetLabel;
+    final String remainLabel;
+    if (isUnlimited) {
+      budgetLabel =
+          'Workflow Budget (${elapsedS.toStringAsFixed(1)}s / Unlimited)';
+      remainLabel = 'No timeout limit';
+    } else {
+      budgetLabel =
+          'Workflow Deadline (${elapsedS.toStringAsFixed(1)}s / ${deadlineS.toStringAsFixed(0)}s)';
+      remainLabel = deadlineExceeded
+          ? 'EXCEEDED'
+          : '${(deadlineS - elapsedS).clamp(0.0, deadlineS).toStringAsFixed(1)}s remaining';
+    }
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -183,48 +269,56 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Wrap(
-                spacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    'Lifecycle Phase:',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: tokens.secondaryText,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: phase == 'completed'
-                          ? tokens.badgeConfirmedBg
-                          : (deadlineExceeded || phase == 'failed' || phase == 'timed_out'
-                              ? tokens.badgeJudgmentBg
-                              : tokens.brandAction.withValues(alpha: 0.15)),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      phase.toUpperCase(),
+              Flexible(
+                child: Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'Lifecycle Phase:',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: phase == 'completed'
-                            ? tokens.badgeConfirmedText
-                            : (deadlineExceeded || phase == 'failed' || phase == 'timed_out'
-                                ? tokens.badgeJudgmentText
-                                : tokens.brandAction),
+                        color: tokens.secondaryText,
                       ),
                     ),
-                  ),
-                ],
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: phase == 'completed'
+                            ? tokens.badgeConfirmedBg
+                            : (deadlineExceeded ||
+                                    phase == 'failed' ||
+                                    phase == 'timed_out'
+                                ? tokens.badgeJudgmentBg
+                                : tokens.brandAction.withValues(alpha: 0.15)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        phase.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: phase == 'completed'
+                              ? tokens.badgeConfirmedText
+                              : (deadlineExceeded ||
+                                      phase == 'failed' ||
+                                      phase == 'timed_out'
+                                  ? tokens.badgeJudgmentText
+                                  : tokens.brandAction),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               if (diag?.reviewId != null && diag!.reviewId != 'idle')
                 Flexible(
                   child: Text(
                     'ID: ${diag.reviewId}',
-                    style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+                    style:
+                        TextStyle(fontSize: 11, color: tokens.secondaryText),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -236,17 +330,19 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
             children: [
               Flexible(
                 child: Text(
-                  'Workflow Deadline (${elapsedS.toStringAsFixed(1)}s / ${deadlineS.toStringAsFixed(0)}s)',
+                  budgetLabel,
                   style: TextStyle(fontSize: 12, color: tokens.primaryText),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               Text(
-                deadlineExceeded ? 'EXCEEDED' : '${(deadlineS - elapsedS).clamp(0.0, deadlineS).toStringAsFixed(1)}s remaining',
+                remainLabel,
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: deadlineExceeded ? tokens.badgeJudgmentText : tokens.secondaryText,
+                  color: deadlineExceeded
+                      ? tokens.badgeJudgmentText
+                      : tokens.secondaryText,
                 ),
               ),
             ],
@@ -259,7 +355,9 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
               minHeight: 6,
               backgroundColor: tokens.dividerLine,
               valueColor: AlwaysStoppedAnimation<Color>(
-                deadlineExceeded ? tokens.badgeJudgmentText : tokens.brandAction,
+                deadlineExceeded
+                    ? tokens.badgeJudgmentText
+                    : tokens.brandAction,
               ),
             ),
           ),
@@ -267,7 +365,10 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
             const SizedBox(height: 8),
             Text(
               'Notice: ${diag!.error!}',
-              style: TextStyle(fontSize: 11, color: tokens.badgeJudgmentText, fontStyle: FontStyle.italic),
+              style: TextStyle(
+                  fontSize: 11,
+                  color: tokens.badgeJudgmentText,
+                  fontStyle: FontStyle.italic),
             ),
           ],
         ],
@@ -421,9 +522,11 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
   Widget _buildTelemetryExportCard(BuildContext context, SteadyDevThemeTokens tokens) {
     final telem = _telemetryConfig;
     final state = telem?.exportState ?? 'disabled';
+    final isEnabled = telem?.enabled == true;
     final isDelivered = telem?.verifiedDelivery == true;
     final traceId = telem?.lastTraceId;
     final traceUrl = telem?.traceUrl;
+    final isDisabled = state == 'disabled';
 
     Color badgeColor;
     String badgeText;
@@ -432,10 +535,16 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
         badgeColor = tokens.badgeConfirmedText;
         badgeText = 'VERIFIED DELIVERED';
         break;
+      case 'local_only':
+        badgeColor = tokens.brandAction;
+        badgeText = 'ENABLED (ACTIVE)';
+        break;
       case 'staged_local':
       case 'flushing':
         badgeColor = tokens.badgeUnverifiedText;
-        badgeText = 'STAGED LOCAL';
+        badgeText = isEnabled
+            ? 'IN-FLIGHT (BUFFERING TO SENTRY)'
+            : 'STAGED LOCAL';
         break;
       case 'delivery_failed':
         badgeColor = tokens.badgeJudgmentText;
@@ -443,7 +552,7 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
         break;
       default:
         badgeColor = tokens.secondaryText;
-        badgeText = 'DISABLED (LOCAL ONLY)';
+        badgeText = 'DISABLED (OFFLINE ONLY)';
     }
 
     return Container(
@@ -514,7 +623,8 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
                 ),
             ],
           ),
-          if (traceId != null && traceId.isNotEmpty) ...[
+          // Only show Trace ID when telemetry is not disabled
+          if (!isDisabled && traceId != null && traceId.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               'Trace ID: $traceId',

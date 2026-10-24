@@ -318,25 +318,52 @@ class Reviewer:
                 attempt,
             )
 
-        required_keys = {"status", "findings", "closing_summary", "restart_note"}
-        missing_keys = required_keys - set(parsed.keys())
-        if missing_keys or not isinstance(parsed.get("findings"), list):
-            msg = (
-                f"Missing required keys in model response: {sorted(missing_keys)}"
-                if missing_keys
-                else "'findings' field must be a list"
-            )
-            err_msg = f"Incomplete model response ({msg})"
-            attempt = ModelAttempt(
-                model=model_name,
-                outcome="schema_invalid",
-                duration_ms=timings["total_duration_ms"],
-                input_tokens=in_tokens,
-                output_tokens=out_tokens,
-                done_reason=done_reason,
-                error_detail=err_msg,
-            )
-            return None, timings, raw_text, err_msg, attempt
+        is_multi_chunk = total_chunks is not None and total_chunks > 1
+        if is_multi_chunk:
+            if "findings" not in parsed or not isinstance(parsed.get("findings"), list):
+                err_msg = "Incomplete model response (missing required 'findings' list)"
+                attempt = ModelAttempt(
+                    model=model_name,
+                    outcome="schema_invalid",
+                    duration_ms=timings["total_duration_ms"],
+                    input_tokens=in_tokens,
+                    output_tokens=out_tokens,
+                    done_reason=done_reason,
+                    error_detail=err_msg,
+                )
+                return None, timings, raw_text, err_msg, attempt
+
+            findings_count = len(parsed["findings"])
+            if not isinstance(parsed.get("status"), str) or not parsed.get("status"):
+                parsed["status"] = (
+                    "findings_detected" if findings_count > 0 else "clean"
+                )
+            if not isinstance(parsed.get("closing_summary"), str):
+                parsed["closing_summary"] = ""
+            if not isinstance(parsed.get("restart_note"), str):
+                parsed["restart_note"] = ""
+            if not isinstance(parsed.get("retired_finding_ids"), list):
+                parsed["retired_finding_ids"] = []
+        else:
+            required_keys = {"status", "findings", "closing_summary", "restart_note"}
+            missing_keys = required_keys - set(parsed.keys())
+            if missing_keys or not isinstance(parsed.get("findings"), list):
+                msg = (
+                    f"Missing required keys in model response: {sorted(missing_keys)}"
+                    if missing_keys
+                    else "'findings' field must be a list"
+                )
+                err_msg = f"Incomplete model response ({msg})"
+                attempt = ModelAttempt(
+                    model=model_name,
+                    outcome="schema_invalid",
+                    duration_ms=timings["total_duration_ms"],
+                    input_tokens=in_tokens,
+                    output_tokens=out_tokens,
+                    done_reason=done_reason,
+                    error_detail=err_msg,
+                )
+                return None, timings, raw_text, err_msg, attempt
 
         attempt = ModelAttempt(
             model=model_name,

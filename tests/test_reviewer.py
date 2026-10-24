@@ -1,5 +1,6 @@
 """Unit tests for Reviewer orchestrator."""
 
+import json
 from unittest.mock import MagicMock
 
 from steadydev.models import ChangedFile, Finding, FindingCategory, ReviewPacket
@@ -753,5 +754,48 @@ def test_multichunk_no_baseline_fallback_and_distinct_secondary() -> None:
     # Must NOT have substituted ChecklistBaseline findings when use_baseline_fallback=False
     assert res.status == "unavailable"
     assert res.findings == []
-    assert all(cp.resolved_engine != "baseline-checklist" for cp in res.chunk_provenance)
+    assert all(
+        cp.resolved_engine != "baseline-checklist" for cp in res.chunk_provenance
+    )
 
+
+def test_invoke_single_model_resilient_to_missing_restart_note() -> None:
+    """Intermediate chunks or models that omit restart_note or closing_summary must NOT be rejected as schema_invalid."""
+    mock_client = MagicMock(spec=OllamaClient)
+    mock_client.chat.return_value = {
+        "content": json.dumps(
+            {
+                "status": "findings_detected",
+                "findings": [
+                    {
+                        "category": "evidence_mismatch",
+                        "locator": "src/app.py:10",
+                        "description": "App divergence",
+                        "evidence": "print('bad')",
+                    }
+                ],
+                "closing_summary": "Reviewed app.py",
+                # Note: "restart_note" omitted by model
+            }
+        ),
+        "model": "gemma3:4b",
+        "done_reason": "stop",
+        "total_duration_ms": 150.0,
+        "prompt_eval_count": 1800,
+        "eval_count": 105,
+    }
+
+    reviewer = Reviewer(ollama_client=mock_client)
+    parsed, _timings, _raw, err_msg, attempt = reviewer._invoke_single_model(
+        model_name="gemma3:4b",
+        messages=[{"role": "user", "content": "review"}],
+        chunk_index=1,
+        total_chunks=6,
+    )
+
+    assert err_msg is None, f"Expected err_msg to be None, got: {err_msg}"
+    assert parsed is not None
+    assert attempt.outcome == "success"
+    assert parsed.get("restart_note") == ""
+    assert len(parsed.get("findings", [])) == 1
+    assert parsed["findings"][0]["locator"] == "src/app.py:10"

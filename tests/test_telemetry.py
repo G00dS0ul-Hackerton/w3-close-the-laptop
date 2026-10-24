@@ -309,4 +309,3 @@ def test_disabled_telemetry_clears_stale_trace_id() -> None:
     assert receipt.trace_id is None, (
         f"Expected trace_id to be None when telemetry is DISABLED, got {receipt.trace_id}"
     )
-

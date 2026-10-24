@@ -205,3 +205,28 @@ def test_diagnostics_offline_core(running_diagnostic_server, monkeypatch):
     resp = httpx.get(f"{base}/api/review/diagnostics", headers=headers, timeout=5.0)
     assert resp.status_code == 200
     assert resp.json()["phase"] in ("idle", "completed")
+
+
+def test_complete_lifecycle_marks_completed_despite_informational_error(
+    running_diagnostic_server,
+):
+    """Informational error notice on successful review must NOT mark lifecycle phase as 'failed'."""
+    server = running_diagnostic_server["server"]
+    server.start_lifecycle(
+        review_id="rev-test",
+        repo_name="repo",
+        deadline_seconds=None,
+    )
+
+    server.complete_lifecycle(
+        status="findings_detected",
+        error="Notice: Chunk 1: model failed; baseline fallback disabled",
+        elapsed_ms=12000.0,
+        deadline_exceeded=False,
+    )
+
+    rec = server.get_lifecycle_record()
+    assert rec.phase == "completed", f"Expected phase 'completed', got: {rec.phase}"
+    assert rec.status == "findings_detected"
+    assert rec.error == "Notice: Chunk 1: model failed; baseline fallback disabled"
+    assert rec.deadline_exceeded is False

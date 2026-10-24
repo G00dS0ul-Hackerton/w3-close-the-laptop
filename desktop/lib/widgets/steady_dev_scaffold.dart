@@ -12,7 +12,6 @@ import '../views/audit_view.dart';
 import '../views/closing_view.dart';
 import '../views/diagnostics_dialog.dart';
 import '../views/session_view.dart';
-import '../views/telemetry_settings_dialog.dart';
 
 class SteadyDevScaffold extends StatefulWidget {
   final ThemeManager themeManager;
@@ -49,8 +48,16 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
   String? _activeEngineTier;
   List<ChunkProvenanceData>? _chunkProvenance;
   String _selectedModel = 'gemma3:4b';
+  double? _workflowTimeoutSeconds = 300.0;
+  String _fallbackPolicy = 'secondary_model';
   List<ModelOption> _availableModels = [];
   String _quietStatus = 'Ready for checkpoint';
+
+  ReviewExecutionConfig get _currentExecutionConfig => ReviewExecutionConfig(
+        modelId: _selectedModel,
+        workflowTimeoutSeconds: _workflowTimeoutSeconds,
+        fallbackPolicy: _fallbackPolicy,
+      );
   String _restartNote =
       'Open the dashboard at 390px and check mobile navigation. The login redirect change has sample auth-test evidence.';
 
@@ -150,16 +157,20 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
           ];
 
     if (!mounted) return;
-    final chosen = await SelectModelDialog.show(
+    final chosen = await SelectModelDialog.showConfig(
       context,
       models: modelList,
       currentModelId: _selectedModel,
+      currentTimeoutSeconds: _workflowTimeoutSeconds,
+      currentFallbackPolicy: _fallbackPolicy,
       isOllamaOffline: _isEngineOffline,
     );
 
     if (chosen != null && mounted) {
       setState(() {
-        _selectedModel = chosen;
+        _selectedModel = chosen.modelId;
+        _workflowTimeoutSeconds = chosen.workflowTimeoutSeconds;
+        _fallbackPolicy = chosen.fallbackPolicy;
       });
     }
   }
@@ -286,6 +297,8 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
       _quietStatus = 'Reviewing snapshot with Ollama...';
     });
 
+    final execConfig = _currentExecutionConfig;
+    final startedAt = DateTime.now();
     Timer? progressTimer;
     if (widget.apiClient != null) {
       progressTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
@@ -295,16 +308,30 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
         }
         try {
           final prog = await widget.apiClient!.getReviewProgress();
-          if (mounted && _isReviewing && prog.isReviewing) {
+          if (mounted && _isReviewing) {
+            final elapsedSec = DateTime.now().difference(startedAt).inMilliseconds / 1000.0;
+            final String timerLabel;
+            if (execConfig.isUnlimitedTimeout) {
+              timerLabel = ' · ${elapsedSec.toStringAsFixed(0)}s (Unlimited)';
+            } else {
+              final remSec = (execConfig.workflowTimeoutSeconds! - elapsedSec)
+                  .clamp(0.0, execConfig.workflowTimeoutSeconds!);
+              timerLabel = ' · ${remSec.toStringAsFixed(0)}s left';
+            }
             setState(() {
-              if (prog.totalChunks > 1) {
+              if (prog.isReviewing && prog.totalChunks > 1) {
                 if (prog.phase == 'synthesizing') {
-                  _quietStatus = 'Synthesizing session checkpoint...';
+                  _quietStatus = 'Synthesizing session checkpoint...$timerLabel';
                 } else if (prog.currentFiles.isNotEmpty) {
-                  _quietStatus = 'Reviewing ${prog.currentFiles} (${prog.currentChunk}/${prog.totalChunks})...';
+                  _quietStatus =
+                      'Reviewing ${prog.currentFiles} (${prog.currentChunk}/${prog.totalChunks})...$timerLabel';
+                } else {
+                  _quietStatus = 'Reviewing snapshot with Ollama...$timerLabel';
                 }
-              } else if (prog.currentFiles.isNotEmpty) {
-                _quietStatus = 'Reviewing ${prog.currentFiles}...';
+              } else if (prog.isReviewing && prog.currentFiles.isNotEmpty) {
+                _quietStatus = 'Reviewing ${prog.currentFiles}...$timerLabel';
+              } else {
+                _quietStatus = 'Reviewing snapshot with Ollama...$timerLabel';
               }
             });
           }
@@ -318,7 +345,12 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
           criteria: _criteria,
           receipts: _receipts,
           priorFindings: _findings,
-          model: _selectedModel,
+          model: execConfig.modelId,
+          workflowTimeoutSeconds: execConfig.workflowTimeoutSeconds,
+          includeWorkflowTimeout: true,
+          fallbackModel: execConfig.resolvedFallbackModel,
+          includeFallbackModel: true,
+          useBaselineFallback: execConfig.useBaselineFallback,
         );
 
         if (res != null) {
@@ -352,6 +384,8 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
             _findings = mergedFindings;
             if (res.unchangedSnapshot) {
               _quietStatus = 'Snapshot unchanged · Displaying current findings';
+            } else if (res.status == 'unavailable') {
+              _quietStatus = res.error ?? 'AI model review timed out (baseline fallback disabled)';
             } else {
               _quietStatus = 'Checkpoint complete';
             }
@@ -612,35 +646,30 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           // Breadcrumb
-                          Flexible(
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: InkWell(
-                                onTap: _openSelectRepoDialog,
-                                borderRadius: BorderRadius.circular(6),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (showBadges) ...[
-                                        Text('Workspace', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
-                                        const SizedBox(width: 6),
-                                        Text('/', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
-                                        const SizedBox(width: 6),
-                                      ],
-                                      Icon(Icons.fork_right, size: 16, color: tokens.brandAction),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        _repoName,
-                                        style: TextStyle(
-                                            fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Icon(Icons.arrow_drop_down, size: 18, color: tokens.secondaryText),
-                                    ],
+                          InkWell(
+                            onTap: _openSelectRepoDialog,
+                            borderRadius: BorderRadius.circular(6),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (showBadges) ...[
+                                    Text('Workspace', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
+                                    const SizedBox(width: 6),
+                                    Text('/', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Icon(Icons.fork_right, size: 16, color: tokens.brandAction),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _repoName,
+                                    style: TextStyle(
+                                        fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText),
                                   ),
-                                ),
+                                  const SizedBox(width: 4),
+                                  Icon(Icons.arrow_drop_down, size: 18, color: tokens.secondaryText),
+                                ],
                               ),
                             ),
                           ),
@@ -650,7 +679,6 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                           Flexible(
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
-                              reverse: true,
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -687,44 +715,6 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                                       ),
                                     ),
                                   ),
-                                  if (widget.apiClient != null) ...[
-                                    const SizedBox(width: 6),
-                                    InkWell(
-                                      onTap: () => TelemetrySettingsDialog.show(
-                                        context,
-                                        apiClient: widget.apiClient!,
-                                      ),
-                                      borderRadius: BorderRadius.circular(6),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: tokens.subtleSurface,
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                          border: Border.all(
-                                              color: tokens.dividerLine),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.cloud_upload_outlined,
-                                                size: 14,
-                                                color: tokens.brandAction),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Telemetry',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: tokens.primaryText,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
                                   const SizedBox(width: 8),
                                   if (showBadges) ...[
                                     Text('Theme',
@@ -825,6 +815,7 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                           activeEngine: _activeEngineTier,
                           chunkProvenance: _chunkProvenance,
                           selectedModel: _selectedModel,
+                          executionConfig: _currentExecutionConfig,
                           onSelectModel: _handleSelectModel,
                           onRetryConnection: _loadSessionFromEngine,
                           onSelectRepo: _openSelectRepoDialog,

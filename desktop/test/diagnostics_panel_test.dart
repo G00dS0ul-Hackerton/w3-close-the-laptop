@@ -126,6 +126,35 @@ void main() {
     expect(find.textContaining('Workflow deadline exceeded'), findsOneWidget);
   });
 
+  testWidgets('DiagnosticsDialog renders Unlimited workflow timeout budget cleanly without fixed deadline', (
+    tester,
+  ) async {
+    final unlimitedData = ReviewDiagnosticsData(
+      reviewId: 'job-unlimited-01',
+      phase: 'auditing',
+      isReviewing: true,
+      repoName: 'w3-close-the-laptop',
+      totalFiles: 3,
+      totalChunks: 2,
+      currentChunk: 1,
+      currentFiles: ['desktop/lib/views/session_view.dart'],
+      chunkDiagnostics: [],
+      elapsedMs: 45200.0,
+      deadlineSeconds: null,
+      deadlineExceeded: false,
+      status: 'reviewing',
+      createdAt: '2026-10-24T20:00:00Z',
+      updatedAt: '2026-10-24T20:00:45Z',
+    );
+
+    await tester.pumpWidget(buildTestDialog(unlimitedData));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('AUDITING'), findsOneWidget);
+    expect(find.textContaining('Workflow Budget (45.2s / Unlimited)'), findsOneWidget);
+    expect(find.text('No timeout limit'), findsOneWidget);
+  });
+
   testWidgets('DiagnosticsDialog layout renders cleanly at 600px width without overflow', (
     tester,
   ) async {

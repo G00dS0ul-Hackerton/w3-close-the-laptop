@@ -377,7 +377,7 @@ class ReviewDiagnosticsData {
   final List<String> currentFiles;
   final List<ChunkProvenanceData> chunkDiagnostics;
   final double elapsedMs;
-  final double deadlineSeconds;
+  final double? deadlineSeconds;
   final bool deadlineExceeded;
   final String status;
   final String? error;
@@ -396,7 +396,7 @@ class ReviewDiagnosticsData {
     required this.currentFiles,
     required this.chunkDiagnostics,
     required this.elapsedMs,
-    required this.deadlineSeconds,
+    this.deadlineSeconds,
     required this.deadlineExceeded,
     required this.status,
     this.error,
@@ -421,13 +421,67 @@ class ReviewDiagnosticsData {
           .map((c) => ChunkProvenanceData.fromJson(c as Map<String, dynamic>))
           .toList(),
       elapsedMs: (json['elapsed_ms'] as num? ?? 0.0).toDouble(),
-      deadlineSeconds: (json['deadline_seconds'] as num? ?? 180.0).toDouble(),
+      deadlineSeconds: json.containsKey('deadline_seconds')
+          ? (json['deadline_seconds'] as num?)?.toDouble()
+          : 180.0,
       deadlineExceeded: json['deadline_exceeded'] as bool? ?? false,
       status: json['status'] as String? ?? 'idle',
       error: json['error'] as String?,
       createdAt: json['created_at'] as String? ?? '',
       updatedAt: json['updated_at'] as String? ?? '',
     );
+  }
+}
+
+class ReviewExecutionConfig {
+  final String modelId;
+  /// Workflow timeout in seconds, or `null` for Unlimited (no timeout).
+  final double? workflowTimeoutSeconds;
+  /// Fallback behavior when primary model times out or fails:
+  /// - `'secondary_model'`: fall back to paired secondary AI model (no baseline floor)
+  /// - `'baseline_only'`: fall back directly to deterministic checklist baseline
+  /// - `'no_fallback'`: do not fall back (primary AI model only)
+  final String fallbackPolicy;
+
+  const ReviewExecutionConfig({
+    required this.modelId,
+    this.workflowTimeoutSeconds = 300.0,
+    this.fallbackPolicy = 'secondary_model',
+  });
+
+  bool get isUnlimitedTimeout =>
+      workflowTimeoutSeconds == null || workflowTimeoutSeconds! <= 0;
+
+  String? get resolvedFallbackModel {
+    if (modelId == 'baseline-checklist') return null;
+    if (fallbackPolicy != 'secondary_model') return null;
+    if (modelId.contains('qwen')) return 'gemma3:4b';
+    return 'qwen2.5-coder:3b';
+  }
+
+  bool get useBaselineFallback {
+    if (modelId == 'baseline-checklist') return true;
+    return fallbackPolicy == 'baseline_only';
+  }
+
+  String get timeoutSummaryLabel {
+    if (isUnlimitedTimeout) return 'Unlimited';
+    return '${workflowTimeoutSeconds!.toInt()}s';
+  }
+
+  String get fallbackSummaryLabel {
+    if (modelId == 'baseline-checklist') return 'Baseline';
+    switch (fallbackPolicy) {
+      case 'secondary_model':
+        return resolvedFallbackModel?.contains('gemma') == true
+            ? 'Fallback: Gemma 3'
+            : 'Fallback: Qwen 2.5';
+      case 'baseline_only':
+        return 'Fallback: Baseline';
+      case 'no_fallback':
+      default:
+        return 'No Fallback';
+    }
   }
 }
 

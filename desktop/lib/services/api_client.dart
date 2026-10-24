@@ -187,6 +187,11 @@ class SteadyDevApiClient {
     List<FindingItem>? priorFindings,
     List<String>? deferrals,
     String? model,
+    double? workflowTimeoutSeconds,
+    bool includeWorkflowTimeout = false,
+    String? fallbackModel,
+    bool includeFallbackModel = false,
+    bool? useBaselineFallback,
   }) async {
     final requestId = ++_latestRequestId;
 
@@ -200,6 +205,15 @@ class SteadyDevApiClient {
     };
     if (model != null && model.isNotEmpty) {
       bodyMap['model'] = model;
+    }
+    if (includeWorkflowTimeout || workflowTimeoutSeconds != null) {
+      bodyMap['workflow_timeout_seconds'] = workflowTimeoutSeconds;
+    }
+    if (includeFallbackModel || fallbackModel != null) {
+      bodyMap['fallback_model'] = fallbackModel;
+    }
+    if (useBaselineFallback != null) {
+      bodyMap['use_baseline_fallback'] = useBaselineFallback;
     }
 
     final body = jsonEncode(bodyMap);

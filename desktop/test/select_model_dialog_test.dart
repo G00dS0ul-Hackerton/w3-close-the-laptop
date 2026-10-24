@@ -127,6 +127,74 @@ void main() {
     expect(returnedModel, 'qwen2.5:7b');
   });
 
+  testWidgets('SelectModelDialog.showConfig allows configuring Unlimited timeout and fallback policy', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    ReviewExecutionConfig? returnedConfig;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          extensions: const [SteadyDevThemeTokens.light],
+        ),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () async {
+                final res = await SelectModelDialog.showConfig(
+                  context,
+                  models: sampleModels,
+                  currentModelId: 'qwen2.5-coder:3b',
+                  currentTimeoutSeconds: 300.0,
+                  currentFallbackPolicy: 'secondary_model',
+                );
+                returnedConfig = res;
+              },
+              child: const Text('Open Config Dialog'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open Config Dialog'));
+    await tester.pumpAndSettle();
+
+    // Verify timeout chips exist
+    expect(find.text('WORKFLOW TIMEOUT BUDGET'), findsOneWidget);
+    expect(find.text('120s'), findsOneWidget);
+    expect(find.text('180s'), findsOneWidget);
+    expect(find.text('300s'), findsOneWidget);
+    expect(find.text('600s'), findsOneWidget);
+    expect(find.text('Unlimited'), findsOneWidget);
+
+    // Select Unlimited timeout
+    await tester.tap(find.text('Unlimited'));
+    await tester.pumpAndSettle();
+
+    // Select "No Fallback (Primary AI Model Only)"
+    final noFallbackFinder = find.textContaining('No Fallback (Primary AI Model Only)');
+    await tester.ensureVisible(noFallbackFinder);
+    await tester.tap(noFallbackFinder);
+    await tester.pumpAndSettle();
+
+    // Tap Select Model
+    final selectBtn = find.text('Select Model');
+    await tester.ensureVisible(selectBtn);
+    await tester.tap(selectBtn);
+    await tester.pumpAndSettle();
+
+    expect(returnedConfig, isNotNull);
+    expect(returnedConfig!.modelId, 'qwen2.5-coder:3b');
+    expect(returnedConfig!.workflowTimeoutSeconds, isNull);
+    expect(returnedConfig!.isUnlimitedTimeout, isTrue);
+    expect(returnedConfig!.fallbackPolicy, 'no_fallback');
+    expect(returnedConfig!.useBaselineFallback, isFalse);
+    expect(returnedConfig!.resolvedFallbackModel, isNull);
+  });
+
   testWidgets('SelectModelDialog renders clean offline alert when Ollama is offline', (tester) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;

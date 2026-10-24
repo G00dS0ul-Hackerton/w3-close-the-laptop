@@ -28,6 +28,7 @@ class SessionView extends StatelessWidget {
   final VoidCallback? onRetryConnection;
   final VoidCallback? onSelectRepo;
   final String? selectedModel;
+  final ReviewExecutionConfig? executionConfig;
   final VoidCallback? onSelectModel;
   final VoidCallback? onCancelReview;
 
@@ -54,6 +55,7 @@ class SessionView extends StatelessWidget {
     this.onRetryConnection,
     this.onSelectRepo,
     this.selectedModel,
+    this.executionConfig,
     this.onSelectModel,
     this.onCancelReview,
   });
@@ -778,6 +780,14 @@ class SessionView extends StatelessWidget {
                             activeEngine ?? selectedModel ?? 'gemma3:4b',
                             onTap: onSelectModel,
                           ),
+                        if (!isReviewing && executionConfig != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Timeout: ${executionConfig!.timeoutSummaryLabel} · ${executionConfig!.fallbackSummaryLabel}',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+                          ),
+                        ],
                         if (chunkProvenance != null && _isPartialCoverage(chunkProvenance!))
                           _buildPartialCoverageBanner(context, chunkProvenance!),
                       ],
@@ -1001,7 +1011,7 @@ class SessionView extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '$aiCount chunk(s) reviewed by AI, $baselineCount chunk(s) evaluated via baseline floor (180s deadline).',
+            '$aiCount chunk(s) reviewed by AI, $baselineCount chunk(s) evaluated via baseline floor.',
             style: TextStyle(fontSize: 11, color: tokens.secondaryText, height: 1.3),
           ),
           const SizedBox(height: 6),

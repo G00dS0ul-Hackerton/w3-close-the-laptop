@@ -186,11 +186,17 @@ class SteadyDevServer(ThreadingHTTPServer):
         with self._lifecycle_lock:
             lc = self._current_lifecycle
             lc.is_reviewing = False
-            lc.phase = (
-                "completed"
-                if not error
-                else ("timed_out" if deadline_exceeded else "failed")
-            )
+            if status in ("findings_detected", "clean", "fallback_baseline"):
+                lc.phase = "completed"
+            elif status == "cancelled":
+                lc.phase = "cancelled"
+            elif status == "stale_snapshot":
+                lc.phase = "stale_snapshot"
+            elif deadline_exceeded or "timeout" in (status or "").lower():
+                lc.phase = "timed_out"
+            else:
+                lc.phase = "failed"
+
             lc.status = status
             lc.error = error
             lc.deadline_exceeded = deadline_exceeded
