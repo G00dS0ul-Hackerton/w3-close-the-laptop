@@ -848,3 +848,99 @@ def test_review_cancel_physically_aborts_transport_and_unloads_model(
     # Reviewer cancel_active must have been called
     assert hasattr(server_obj.reviewer, "cancel_active")
     server_obj.reviewer.cancel_active.assert_called_once()
+
+
+def test_unlimited_workflow_timeout_and_live_diagnostics_elapsed_and_chunks(
+    running_server: dict,
+) -> None:
+    """R15: POST /api/review accepts workflow_timeout_seconds=None (Unlimited) without ValidationError, and GET /api/review/diagnostics returns live advancing elapsed_ms and incremental chunk_diagnostics during auditing."""
+    import threading
+    import time
+    from unittest.mock import MagicMock
+
+    from steadydev.models import ChunkProvenance, ReviewResult
+
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    repo_root = running_server["repo_root"]
+    server_obj = running_server["server"]
+
+    chunk1_reported = threading.Event()
+    release_review = threading.Event()
+
+    def fake_review(packet, **kwargs):
+        # Verify unlimited timeout was forwarded as None
+        assert kwargs.get("workflow_timeout_seconds") is None
+        progress_cb = kwargs.get("progress_callback")
+        time.sleep(0.05)
+        cp1 = ChunkProvenance(
+            chunk_index=1,
+            total_chunks=2,
+            file_paths=["src/foo.py"],
+            attempts=[],
+            resolved_engine="qwen2.5-coder:3b",
+            fallback_reason=None,
+            findings_count=0,
+        )
+        # Call progress_callback with incremental chunk provenance
+        if progress_cb is not None:
+            try:
+                progress_cb(1, 2, "src/foo.py", [cp1])
+            except TypeError:
+                progress_cb(1, 2, "src/foo.py")
+        chunk1_reported.set()
+        release_review.wait(timeout=5.0)
+        return ReviewResult(
+            packet_id=packet.packet_id,
+            status="clean",
+            closing_summary="All clean",
+            restart_note="Ready",
+            model_name="qwen2.5-coder:3b",
+            chunk_provenance=[cp1],
+        )
+
+    orig_review = server_obj.reviewer.review
+    server_obj.reviewer.review = MagicMock(side_effect=fake_review)
+
+    review_resp_holder: list[httpx.Response] = []
+
+    def run_post():
+        r = httpx.post(
+            f"{base_url}/api/review",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "repo_path": str(repo_root),
+                "model": "qwen2.5-coder:3b",
+                "fallback_model": "gemma3:4b",
+                "use_baseline_fallback": False,
+                "workflow_timeout_seconds": None,
+            },
+            timeout=10.0,
+        )
+        review_resp_holder.append(r)
+
+    th = threading.Thread(target=run_post, daemon=True)
+    try:
+        th.start()
+        assert chunk1_reported.wait(timeout=3.0)
+
+        diag_resp = httpx.get(
+            f"{base_url}/api/review/diagnostics",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert diag_resp.status_code == 200
+        lc = diag_resp.json()
+        assert lc["is_reviewing"] is True
+        assert lc["deadline_seconds"] is None, "Unlimited timeout must serialize deadline_seconds as None"
+        assert lc["elapsed_ms"] > 0.0, f"Expected live elapsed_ms > 0 during auditing, got {lc['elapsed_ms']}"
+        assert len(lc["chunk_diagnostics"]) == 1, "Expected Chunk 1 provenance to be visible mid-review"
+        assert lc["chunk_diagnostics"][0]["resolved_engine"] == "qwen2.5-coder:3b"
+
+        release_review.set()
+        th.join(timeout=5.0)
+        assert len(review_resp_holder) == 1
+        assert review_resp_holder[0].status_code == 200
+    finally:
+        release_review.set()
+        server_obj.reviewer.review = orig_review
+

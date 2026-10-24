@@ -282,8 +282,9 @@ class ReviewLifecycleRecord(BaseModel):
     elapsed_ms: float = Field(
         default=0.0, description="Elapsed wall clock milliseconds"
     )
-    deadline_seconds: float = Field(
-        default=180.0, description="Workflow timeout deadline"
+    deadline_seconds: float | None = Field(
+        default=180.0,
+        description="Workflow timeout deadline in seconds, or None for unlimited",
     )
     deadline_exceeded: bool = Field(
         default=False, description="Whether deadline was hit"

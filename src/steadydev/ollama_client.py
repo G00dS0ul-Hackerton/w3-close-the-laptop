@@ -138,8 +138,8 @@ class OllamaClient:
         """Execute a chat completion with structured output and CPU timing capture."""
         opts = {
             "temperature": 0.0,
-            "num_ctx": 2048,
-            "num_predict": 512,
+            "num_ctx": 4096,
+            "num_predict": 1024,
             "num_thread": max(1, (os.cpu_count() or 4) // 2),
             "repeat_penalty": 1.1,
             "seed": 42,

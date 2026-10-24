@@ -557,15 +557,15 @@ def test_reviewer_map_reduce_with_progress_callback() -> None:
     assert res.closing_summary == "Synthesized 4 files"
     assert res.restart_note == "Run tests on file1 tomorrow"
 
-    # Verify progress events: Chunk 1, Chunk 2, Synthesis
-    assert len(progress_events) == 3
+    # Verify progress events: Chunk 1 start & done, Chunk 2 start & done, Synthesis
+    assert len(progress_events) == 5
     assert progress_events[0][0] == 1
     assert progress_events[0][1] == 2
     assert "file1.py" in progress_events[0][2]
-    assert progress_events[1][0] == 2
-    assert progress_events[1][1] == 2
-    assert "file3.py" in progress_events[1][2]
-    assert "Synthesizing" in progress_events[2][2]
+    assert progress_events[2][0] == 2
+    assert progress_events[2][1] == 2
+    assert "file3.py" in progress_events[2][2]
+    assert "Synthesizing" in progress_events[4][2]
 
 
 def test_fallback_unloads_primary_model_before_secondary() -> None:
@@ -669,3 +669,89 @@ def test_workflow_budget_timeout_preserves_completed_chunks_and_uses_baseline_fl
     assert mock_client.chat.call_count <= 2
     # Result must indicate partial timeout
     assert "timeout" in (res.error or "").lower() or "timeout" in res.status.lower()
+
+
+def test_ollama_client_default_num_ctx_headroom() -> None:
+    """R13: OllamaClient.chat must send num_ctx >= 4096 and num_predict >= 1024 so ~2000-token prompts do not truncate with done_reason='length'."""
+    client = OllamaClient()
+    captured_payload: dict = {}
+
+    class DummyResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "message": {"content": '{"status":"clean","findings":[]}'},
+                "done_reason": "stop",
+                "total_duration": 1000000,
+                "prompt_eval_count": 1950,
+                "eval_count": 120,
+            }
+
+    mock_http = MagicMock()
+
+    def fake_post(url: str, json: dict, **kwargs: object) -> DummyResponse:
+        captured_payload.update(json)
+        return DummyResponse()
+
+    mock_http.post.side_effect = fake_post
+    client._client = mock_http
+
+    client.chat(model="qwen2.5-coder:3b", messages=[{"role": "user", "content": "hi"}])
+    options = captured_payload.get("options", {})
+    assert options.get("num_ctx", 0) >= 4096, (
+        f"Expected num_ctx >= 4096 to prevent 2048-token truncation, got {options.get('num_ctx')}"
+    )
+    assert options.get("num_predict", 0) >= 1024, (
+        f"Expected num_predict >= 1024, got {options.get('num_predict')}"
+    )
+
+
+def test_multichunk_no_baseline_fallback_and_distinct_secondary() -> None:
+    """R14: Multi-chunk review with use_baseline_fallback=False must not substitute ChecklistBaseline on failure, and primary=qwen2.5-coder:3b with fallback=gemma3:4b must try gemma3:4b."""
+    from steadydev.ollama_client import OllamaTimeoutError
+
+    mock_client = MagicMock(spec=OllamaClient)
+    call_models: list[str] = []
+
+    def mock_chat(model: str, *args, **kwargs):
+        call_models.append(model)
+        raise OllamaTimeoutError(f"{model} timed out")
+
+    mock_client.chat.side_effect = mock_chat
+    mock_client.unload_model.return_value = True
+
+    files = [
+        ChangedFile(path="src/file1.py", diff="# TODO: unverified item\n+x1 = 1\n"),
+        ChangedFile(path="src/file2.py", diff="+x2 = 2\n"),
+        ChangedFile(path="src/file3.py", diff="+x3 = 3\n"),
+    ]
+    packet = ReviewPacket(
+        packet_id="pkt-no-baseline",
+        timestamp_utc="2026-10-24T00:00:00Z",
+        repo_name="repo",
+        session_intention="Test no baseline fallback",
+        acceptance_criteria=["Verify all files"],
+        changed_files=files,
+    )
+
+    reviewer = Reviewer(ollama_client=mock_client)
+    res = reviewer.review(
+        packet,
+        model_name="qwen2.5-coder:3b",
+        fallback_model_name="gemma3:4b",
+        use_baseline_fallback=False,
+        workflow_timeout_seconds=None,
+    )
+
+    # Should have attempted primary (qwen2.5-coder:3b) and secondary (gemma3:4b)
+    assert "qwen2.5-coder:3b" in call_models
+    assert "gemma3:4b" in call_models
+    # Must NOT have substituted ChecklistBaseline findings when use_baseline_fallback=False
+    assert res.status == "unavailable"
+    assert res.findings == []
+    assert all(cp.resolved_engine != "baseline-checklist" for cp in res.chunk_provenance)
+

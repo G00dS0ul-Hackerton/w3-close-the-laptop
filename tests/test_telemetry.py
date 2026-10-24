@@ -272,3 +272,41 @@ def test_strict_span_attribute_allowlist() -> None:
                         assert t in ALLOWED_SPAN_TAG_KEYS, (
                             f"Unapproved span tag key: {t}"
                         )
+
+
+def test_disabled_telemetry_clears_stale_trace_id() -> None:
+    """R16: Disabling telemetry via set_telemetry_opt_in(False) must not leave a stale active trace_id on the DISABLED receipt."""
+    from steadydev.telemetry import (
+        ExportState,
+        get_export_state,
+        get_last_delivery_receipt,
+        set_telemetry_opt_in,
+    )
+
+    transport = InMemoryRecordingTransport()
+    init_telemetry(
+        dsn="https://mock@sentry.test/999",
+        transport=transport,
+        force_enable=True,
+    )
+
+    with start_review_span(
+        packet_id="pkt-trace-clear",
+        repo_name="repo",
+        files_count=1,
+        receipts_count=0,
+        prior_findings_count=0,
+        chunks_count=1,
+        primary_model="qwen2.5-coder:3b",
+        fallback_model="gemma3:4b",
+    ):
+        pass
+
+    # Now opt out
+    set_telemetry_opt_in(False)
+    assert get_export_state() == ExportState.DISABLED
+    receipt = get_last_delivery_receipt()
+    assert receipt.trace_id is None, (
+        f"Expected trace_id to be None when telemetry is DISABLED, got {receipt.trace_id}"
+    )
+

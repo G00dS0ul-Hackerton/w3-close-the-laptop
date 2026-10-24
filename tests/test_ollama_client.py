@@ -97,7 +97,7 @@ def test_chat_default_cpu_options() -> None:
     client = OllamaClient(client=httpx.Client(transport=httpx.MockTransport(handler)))
     client.chat("qwen2.5-coder:3b", [{"role": "user", "content": "hi"}])
     opts = captured_payload.get("options", {})
-    assert opts.get("num_ctx") == 2048
-    assert opts.get("num_predict") == 512
+    assert opts.get("num_ctx") == 4096
+    assert opts.get("num_predict") == 1024
     assert "num_thread" in opts
     assert opts.get("repeat_penalty") == 1.1

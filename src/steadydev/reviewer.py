@@ -702,6 +702,19 @@ class Reviewer:
             remaining = workflow_deadline - time.monotonic()
             return max(0.0, remaining)
 
+        def _notify_progress(
+            cur: int,
+            tot: int,
+            files: str,
+            provenance: list[ChunkProvenance] | None = None,
+        ) -> None:
+            if not progress_callback:
+                return
+            try:
+                progress_callback(cur, tot, files, provenance)  # type: ignore[call-arg]
+            except TypeError:
+                progress_callback(cur, tot, files)
+
         if is_cancelled and is_cancelled():
             return ReviewResult(
                 packet_id=packet.packet_id,
@@ -1099,41 +1112,63 @@ class Reviewer:
                     error="Review was cancelled",
                 )
 
-            if is_timeout():
-                timed_out = True
-                with start_tool_span(
-                    tool_name="ChecklistBaseline", reason="timeout_fallback"
-                ) as t_span:
-                    fb_chunk = self.baseline.evaluate(chunk)
-                    t_span.set_data("baseline.findings_count", len(fb_chunk.findings))
-                    t_span.set_data(
-                        "baseline.retired_count", len(fb_chunk.retired_finding_ids)
-                    )
-                    t_span.set_status("ok")
-                all_findings.extend(fb_chunk.findings)
-                all_retired_ids.extend(fb_chunk.retired_finding_ids)
-                models_used.append("baseline-checklist")
-                fallback_notes.append(
-                    f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
-                )
-                chunk_provenance.append(
-                    ChunkProvenance(
-                        chunk_index=chunk_idx,
-                        total_chunks=len(chunks),
-                        file_paths=[f.path for f in chunk.changed_files],
-                        attempts=[],
-                        resolved_engine="baseline-checklist",
-                        fallback_reason="timeout_fallback",
-                        findings_count=len(fb_chunk.findings),
-                    )
-                )
-                continue
-
             file_names = ", ".join(
                 os.path.basename(f.path) for f in chunk.changed_files
             )
-            if progress_callback:
-                progress_callback(chunk_idx, len(chunks), file_names)
+
+            if is_timeout():
+                timed_out = True
+                if use_baseline_fallback:
+                    with start_tool_span(
+                        tool_name="ChecklistBaseline", reason="timeout_fallback"
+                    ) as t_span:
+                        fb_chunk = self.baseline.evaluate(chunk)
+                        t_span.set_data(
+                            "baseline.findings_count", len(fb_chunk.findings)
+                        )
+                        t_span.set_data(
+                            "baseline.retired_count", len(fb_chunk.retired_finding_ids)
+                        )
+                        t_span.set_status("ok")
+                    all_findings.extend(fb_chunk.findings)
+                    all_retired_ids.extend(fb_chunk.retired_finding_ids)
+                    models_used.append("baseline-checklist")
+                    fallback_notes.append(
+                        f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
+                    )
+                    chunk_provenance.append(
+                        ChunkProvenance(
+                            chunk_index=chunk_idx,
+                            total_chunks=len(chunks),
+                            file_paths=[f.path for f in chunk.changed_files],
+                            attempts=[],
+                            resolved_engine="baseline-checklist",
+                            fallback_reason="timeout_fallback",
+                            findings_count=len(fb_chunk.findings),
+                        )
+                    )
+                else:
+                    models_used.append("none")
+                    fallback_notes.append(
+                        f"Chunk {chunk_idx}: workflow timeout exceeded; baseline fallback disabled"
+                    )
+                    chunk_provenance.append(
+                        ChunkProvenance(
+                            chunk_index=chunk_idx,
+                            total_chunks=len(chunks),
+                            file_paths=[f.path for f in chunk.changed_files],
+                            attempts=[],
+                            resolved_engine="none",
+                            fallback_reason="timeout_no_fallback",
+                            findings_count=0,
+                        )
+                    )
+                _notify_progress(
+                    chunk_idx, len(chunks), file_names, list(chunk_provenance)
+                )
+                continue
+
+            _notify_progress(chunk_idx, len(chunks), file_names, list(chunk_provenance))
 
             prompt_context = format_packet_for_prompt(chunk, workspace_outline=outline)
             messages = [
@@ -1205,34 +1240,54 @@ class Reviewer:
             ):
                 if is_timeout():
                     timed_out = True
-                    with start_tool_span(
-                        tool_name="ChecklistBaseline", reason="timeout_fallback"
-                    ) as t_span:
-                        fb_chunk = self.baseline.evaluate(chunk)
-                        t_span.set_data(
-                            "baseline.findings_count", len(fb_chunk.findings)
+                    if use_baseline_fallback:
+                        with start_tool_span(
+                            tool_name="ChecklistBaseline", reason="timeout_fallback"
+                        ) as t_span:
+                            fb_chunk = self.baseline.evaluate(chunk)
+                            t_span.set_data(
+                                "baseline.findings_count", len(fb_chunk.findings)
+                            )
+                            t_span.set_data(
+                                "baseline.retired_count",
+                                len(fb_chunk.retired_finding_ids),
+                            )
+                            t_span.set_status("ok")
+                        all_findings.extend(fb_chunk.findings)
+                        all_retired_ids.extend(fb_chunk.retired_finding_ids)
+                        models_used.append("baseline-checklist")
+                        fallback_notes.append(
+                            f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
                         )
-                        t_span.set_data(
-                            "baseline.retired_count",
-                            len(fb_chunk.retired_finding_ids),
+                        chunk_provenance.append(
+                            ChunkProvenance(
+                                chunk_index=chunk_idx,
+                                total_chunks=len(chunks),
+                                file_paths=[f.path for f in chunk.changed_files],
+                                attempts=chunk_attempts,
+                                resolved_engine="baseline-checklist",
+                                fallback_reason="timeout_fallback",
+                                findings_count=len(fb_chunk.findings),
+                            )
                         )
-                        t_span.set_status("ok")
-                    all_findings.extend(fb_chunk.findings)
-                    all_retired_ids.extend(fb_chunk.retired_finding_ids)
-                    models_used.append("baseline-checklist")
-                    fallback_notes.append(
-                        f"Chunk {chunk_idx}: workflow timeout exceeded; evaluated via baseline floor"
-                    )
-                    chunk_provenance.append(
-                        ChunkProvenance(
-                            chunk_index=chunk_idx,
-                            total_chunks=len(chunks),
-                            file_paths=[f.path for f in chunk.changed_files],
-                            attempts=chunk_attempts,
-                            resolved_engine="baseline-checklist",
-                            fallback_reason="timeout_fallback",
-                            findings_count=len(fb_chunk.findings),
+                    else:
+                        models_used.append("none")
+                        fallback_notes.append(
+                            f"Chunk {chunk_idx}: workflow timeout exceeded; baseline fallback disabled"
                         )
+                        chunk_provenance.append(
+                            ChunkProvenance(
+                                chunk_index=chunk_idx,
+                                total_chunks=len(chunks),
+                                file_paths=[f.path for f in chunk.changed_files],
+                                attempts=chunk_attempts,
+                                resolved_engine="none",
+                                fallback_reason="timeout_no_fallback",
+                                findings_count=0,
+                            )
+                        )
+                    _notify_progress(
+                        chunk_idx, len(chunks), file_names, list(chunk_provenance)
                     )
                     continue
                 else:
@@ -1327,7 +1382,7 @@ class Reviewer:
                         findings_count=len(chunk_res.findings),
                     )
                 )
-            else:
+            elif use_baseline_fallback:
                 # Fall back chunk to baseline
                 fb_reason = (
                     "timeout_fallback"
@@ -1363,6 +1418,31 @@ class Reviewer:
                         findings_count=len(fb_chunk.findings),
                     )
                 )
+            else:
+                fb_reason = (
+                    "timeout_no_fallback"
+                    if (
+                        is_timeout()
+                        or any(a.outcome == "timeout" for a in chunk_attempts)
+                    )
+                    else "model_error_no_fallback"
+                )
+                models_used.append("none")
+                fallback_notes.append(
+                    f"Chunk {chunk_idx}: model failed ({p_err}); baseline fallback disabled"
+                )
+                chunk_provenance.append(
+                    ChunkProvenance(
+                        chunk_index=chunk_idx,
+                        total_chunks=len(chunks),
+                        file_paths=[f.path for f in chunk.changed_files],
+                        attempts=chunk_attempts,
+                        resolved_engine="none",
+                        fallback_reason=fb_reason,
+                        findings_count=0,
+                    )
+                )
+            _notify_progress(chunk_idx, len(chunks), file_names, list(chunk_provenance))
 
         # Deduplicate findings across chunks
         seen_ids: set[str] = set()
@@ -1383,19 +1463,45 @@ class Reviewer:
                 error="Review was cancelled",
             )
 
+        if all(m == "none" for m in models_used):
+            error_msg = (
+                "; ".join(fallback_notes)
+                if fallback_notes
+                else "All chunks failed and baseline fallback is disabled."
+            )
+            return ReviewResult(
+                packet_id=packet.packet_id,
+                status="unavailable",
+                model_name=model_name,
+                findings=[],
+                retired_finding_ids=[],
+                closing_summary="",
+                restart_note="",
+                timing_ms=total_timings,
+                raw_content=json.dumps(all_raw_chunks),
+                raw_json={"chunks": all_raw_chunks},
+                chunk_provenance=chunk_provenance,
+                error=error_msg,
+            )
+
         if timed_out or is_timeout():
             timed_out = True
             fb_full = self.baseline.evaluate(packet)
             summary = fb_full.closing_summary
             restart = fb_full.restart_note
         else:
-            if progress_callback:
-                progress_callback(
-                    len(chunks), len(chunks), "Synthesizing session checkpoint..."
-                )
+            _notify_progress(
+                len(chunks),
+                len(chunks),
+                "Synthesizing session checkpoint...",
+                list(chunk_provenance),
+            )
             synth_model = (
                 model_name
-                if any(m not in ("baseline", "baseline-checklist") for m in models_used)
+                if any(
+                    m not in ("baseline", "baseline-checklist", "none")
+                    for m in models_used
+                )
                 else None
             )
             if synth_model:

@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import sys
 import threading
+import time
 import uuid
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -104,6 +105,7 @@ class SteadyDevServer(ThreadingHTTPServer):
             "phase": "idle",
         }
         self._lifecycle_lock = threading.Lock()
+        self._lifecycle_start_mono: float | None = None
         now_iso = datetime.now(UTC).isoformat()
         self._current_lifecycle = ReviewLifecycleRecord(
             review_id="idle",
@@ -119,17 +121,25 @@ class SteadyDevServer(ThreadingHTTPServer):
         review_id: str,
         repo_name: str,
         snapshot_hash: str | None = None,
-        deadline_seconds: float = 180.0,
+        deadline_seconds: float | None = 180.0,
     ) -> None:
         now_iso = datetime.now(UTC).isoformat()
+        normalized_deadline: float | None
+        if deadline_seconds is None or (
+            isinstance(deadline_seconds, (int, float)) and deadline_seconds <= 0
+        ):
+            normalized_deadline = None
+        else:
+            normalized_deadline = float(deadline_seconds)
         with self._lifecycle_lock:
+            self._lifecycle_start_mono = time.monotonic()
             self._current_lifecycle = ReviewLifecycleRecord(
                 review_id=review_id,
                 phase="starting",
                 is_reviewing=True,
                 repo_name=repo_name,
                 snapshot_hash=snapshot_hash,
-                deadline_seconds=deadline_seconds,
+                deadline_seconds=normalized_deadline,
                 created_at=now_iso,
                 updated_at=now_iso,
             )
@@ -155,6 +165,11 @@ class SteadyDevServer(ThreadingHTTPServer):
                 lc.current_files = current_files
             if elapsed_ms > 0:
                 lc.elapsed_ms = elapsed_ms
+            elif self._lifecycle_start_mono is not None:
+                lc.elapsed_ms = round(
+                    max(0.01, (time.monotonic() - self._lifecycle_start_mono) * 1000.0),
+                    2,
+                )
             if chunk_diagnostics is not None:
                 lc.chunk_diagnostics = chunk_diagnostics
             lc.updated_at = now_iso
@@ -181,6 +196,11 @@ class SteadyDevServer(ThreadingHTTPServer):
             lc.deadline_exceeded = deadline_exceeded
             if elapsed_ms > 0:
                 lc.elapsed_ms = elapsed_ms
+            elif self._lifecycle_start_mono is not None:
+                lc.elapsed_ms = round(
+                    max(0.01, (time.monotonic() - self._lifecycle_start_mono) * 1000.0),
+                    2,
+                )
             if chunk_diagnostics is not None:
                 lc.chunk_diagnostics = chunk_diagnostics
             lc.updated_at = now_iso
@@ -189,7 +209,16 @@ class SteadyDevServer(ThreadingHTTPServer):
     def get_lifecycle_record(self) -> ReviewLifecycleRecord:
         with self._lifecycle_lock:
             if self._current_lifecycle.is_reviewing:
-                return self._current_lifecycle.model_copy(deep=True)
+                rec = self._current_lifecycle.model_copy(deep=True)
+                if self._lifecycle_start_mono is not None:
+                    rec.elapsed_ms = round(
+                        max(
+                            0.01,
+                            (time.monotonic() - self._lifecycle_start_mono) * 1000.0,
+                        ),
+                        2,
+                    )
+                return rec
             if self._last_completed_lifecycle is not None:
                 return self._last_completed_lifecycle.model_copy(deep=True)
             return self._current_lifecycle.model_copy(deep=True)
@@ -442,7 +471,9 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             self.send_json(200, record.model_dump(mode="json"))
         elif self.path == "/api/telemetry/config":
             opt_in = self.server.store.get_setting("telemetry_opt_in")
-            enabled = (opt_in == "true") if opt_in is not None else False
+            enabled = (
+                (opt_in == "true") if opt_in is not None else is_telemetry_enabled()
+            )
             dsn = self.server.store.get_setting("telemetry_dsn") or get_configured_dsn()
             receipt = get_last_delivery_receipt()
             export_state = get_export_state().value
@@ -839,15 +870,27 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     repo_path=str(repo_path),
                     session_id=session["session_id"],
                 )
+                raw_timeout = body.get("workflow_timeout_seconds", 180.0)
+                if raw_timeout is None or (
+                    isinstance(raw_timeout, (int, float)) and raw_timeout <= 0
+                ):
+                    workflow_timeout: float | None = None
+                else:
+                    workflow_timeout = float(raw_timeout)
                 self.server._active_job = job
                 self.server._is_reviewing = True
                 self.server.start_lifecycle(
                     review_id=job.job_id,
                     repo_name=repo_path.name,
-                    deadline_seconds=body.get("workflow_timeout_seconds", 180.0),
+                    deadline_seconds=workflow_timeout,
                 )
 
-            def on_progress(cur: int, tot: int, files: str) -> None:
+            def on_progress(
+                cur: int,
+                tot: int,
+                files: str,
+                chunk_diagnostics: list[ChunkProvenance] | None = None,
+            ) -> None:
                 if job.is_cancelled():
                     return
                 phase = "synthesizing" if "Synthesizing" in files else "auditing"
@@ -857,6 +900,7 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     current_chunk=cur,
                     total_chunks=tot,
                     current_files=[f.strip() for f in files.split(",") if f.strip()],
+                    chunk_diagnostics=chunk_diagnostics,
                 )
 
             self.server.update_review_progress(
@@ -919,8 +963,15 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     return
 
                 model_name = body.get("model", "gemma3:4b")
-                fallback_model = body.get("fallback_model", "qwen2.5-coder:3b")
-                workflow_timeout = body.get("workflow_timeout_seconds", 180.0)
+                if "fallback_model" in body:
+                    fallback_model = body["fallback_model"]
+                else:
+                    fallback_model = (
+                        "gemma3:4b"
+                        if model_name == "qwen2.5-coder:3b"
+                        else "qwen2.5-coder:3b"
+                    )
+                use_baseline_fallback = bool(body.get("use_baseline_fallback", True))
 
                 with start_review_span(
                     packet_id=packet.packet_id,
@@ -930,13 +981,14 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     prior_findings_count=len(packet.prior_findings),
                     chunks_count=1,
                     primary_model=model_name,
-                    fallback_model=fallback_model,
+                    fallback_model=fallback_model or "none",
                     session_id=session["session_id"],
                 ) as review_span:
                     result = self.server.reviewer.review(
                         packet,
                         model_name=model_name,
                         fallback_model_name=fallback_model,
+                        use_baseline_fallback=use_baseline_fallback,
                         progress_callback=on_progress,
                         is_cancelled=job.is_cancelled,
                         workflow_timeout_seconds=workflow_timeout,

@@ -346,7 +346,7 @@ def set_telemetry_opt_in(
         _DRAIN_MODE = "drop_unsent"
         _CURRENT_EXPORT_STATE = ExportState.DISABLED
         _LAST_DELIVERY_RECEIPT = DeliveryReceipt(
-            trace_id=_LAST_DELIVERY_RECEIPT.trace_id,
+            trace_id=None,
             state=ExportState.DISABLED,
             verified_delivery=False,
             error_detail="Telemetry disabled by user; unsent spans dropped",
