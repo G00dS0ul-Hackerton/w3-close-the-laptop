@@ -206,6 +206,10 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
                         children: [
                           _buildStatusCard(context, tokens),
                           const SizedBox(height: 16),
+                          _buildTimingBreakdown(tokens),
+                          const SizedBox(height: 16),
+                          _buildOperationalSummary(context, tokens),
+                          const SizedBox(height: 16),
                           _buildChunkMatrix(context, tokens),
                           const SizedBox(height: 16),
                           _buildTelemetryExportCard(context, tokens),
@@ -651,7 +655,232 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
     );
   }
 
+  Widget _buildTimingBreakdown(SteadyDevThemeTokens tokens) {
+    final client = widget.apiClient;
+    final uiDuration = client?.lastUiDurationMs != null
+        ? '${(client!.lastUiDurationMs! / 1000).toStringAsFixed(2)}s'
+        : 'N/A';
+    final apiLatency = client?.lastApiLatencyMs != null
+        ? '${client!.lastApiLatencyMs!.toStringAsFixed(0)}ms'
+        : 'N/A';
+    final backendDuration = client?.lastBackendDurationMs != null
+        ? '${(client!.lastBackendDurationMs! / 1000).toStringAsFixed(2)}s'
+        : (_diagnostics?.elapsedMs != null
+            ? '${(_diagnostics!.elapsedMs / 1000).toStringAsFixed(2)}s'
+            : 'N/A');
+    final runId = client?.lastRunId ?? 'N/A';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.subtleSurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: tokens.dividerLine),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Cross-Process Timing & Correlation',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: tokens.primaryText,
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  'Run ID: $runId',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    color: tokens.secondaryText,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricItem(
+                  'Client UI Duration',
+                  uiDuration,
+                  tokens,
+                ),
+              ),
+              Expanded(
+                child: _buildMetricItem(
+                  'HTTP API Latency',
+                  apiLatency,
+                  tokens,
+                ),
+              ),
+              Expanded(
+                child: _buildMetricItem(
+                  'Backend Review',
+                  backendDuration,
+                  tokens,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperationalSummary(
+      BuildContext context, SteadyDevThemeTokens tokens) {
+    final diag = _diagnostics;
+    final totalChunks = diag?.totalChunks ?? 0;
+    final completedChunks = diag?.chunkDiagnostics.length ?? 0;
+    final deadlineS = diag?.deadlineSeconds;
+    final elapsedS = (diag?.elapsedMs ?? 0.0) / 1000.0;
+    final marginLabel = deadlineS != null
+        ? '${(deadlineS - elapsedS).clamp(0.0, double.infinity).toStringAsFixed(1)}s margin'
+        : 'Unlimited';
+    final coverageLabel = totalChunks > 0
+        ? '$completedChunks / $totalChunks chunks (${((completedChunks / totalChunks) * 100).toInt()}%)'
+        : '0 chunks';
+    final phaseLabel = (diag?.phase ?? 'idle').toUpperCase();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tokens.subtleSurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: tokens.dividerLine),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  'Pipeline Latency & Reliability Telemetry',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: tokens.primaryText,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: tokens.panel,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: tokens.dividerLine),
+                ),
+                child: Text(
+                  'OPERATIONAL VIEW',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: tokens.secondaryText,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricItem(
+                  'Pipeline Phase',
+                  'State: $phaseLabel',
+                  tokens,
+                ),
+              ),
+              Expanded(
+                child: _buildMetricItem(
+                  'Timeout Margin',
+                  marginLabel,
+                  tokens,
+                ),
+              ),
+              Expanded(
+                child: _buildMetricItem(
+                  'Chunk Coverage',
+                  coverageLabel,
+                  tokens,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: tokens.panel,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: tokens.dividerLine),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: tokens.secondaryText,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'These metrics measure system performance and reliability boundaries. They do NOT evaluate model semantic accuracy, code correctness, or guarantee bug detection.',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: tokens.secondaryText,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricItem(String label, String value, SteadyDevThemeTokens tokens) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 10, color: tokens.secondaryText),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: tokens.primaryText,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildOfflineFooter(BuildContext context, SteadyDevThemeTokens tokens) {
+    final isSentryActive = _telemetryConfig?.enabled == true;
+    final label = isSentryActive
+        ? 'Local Review Execution · Sanitized Sentry Telemetry Active · Zero Source Egress'
+        : '100% Local Diagnostics · Zero Network Egress · Independent of Sentry';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
@@ -661,12 +890,17 @@ class _DiagnosticsDialogState extends State<DiagnosticsDialog> {
       ),
       child: Row(
         children: [
-          Icon(Icons.shield_outlined, size: 16, color: tokens.secondaryText),
+          Icon(Icons.shield_outlined,
+              size: 16,
+              color: isSentryActive ? tokens.brandAction : tokens.secondaryText),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '100% Local Diagnostics · Zero Network Egress · Independent of Sentry',
-              style: TextStyle(fontSize: 11, color: tokens.secondaryText),
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: isSentryActive ? tokens.primaryText : tokens.secondaryText,
+              ),
             ),
           ),
         ],

@@ -52,6 +52,9 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
   String _fallbackPolicy = 'secondary_model';
   List<ModelOption> _availableModels = [];
   String _quietStatus = 'Ready for checkpoint';
+  bool _isSentryActive = false;
+  String _userName = 'Ise';
+  String _userInitials = 'IS';
 
   ReviewExecutionConfig get _currentExecutionConfig => ReviewExecutionConfig(
         modelId: _selectedModel,
@@ -102,6 +105,16 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
         if (mounted && models.isNotEmpty) {
           setState(() {
             _availableModels = models;
+          });
+        }
+      } catch (_) {}
+
+      // Query telemetry opt-in status from engine
+      try {
+        final telem = await widget.apiClient!.getTelemetryConfig();
+        if (mounted && telem != null) {
+          setState(() {
+            _isSentryActive = telem.enabled;
           });
         }
       } catch (_) {}
@@ -196,6 +209,177 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
 
     if (selected != null && selected.isNotEmpty) {
       await _onRepoSelected(selected);
+    }
+  }
+
+  Future<void> _openUserProfileDialog() async {
+    final nameController = TextEditingController(text: _userName);
+    final initialsController = TextEditingController(text: _userInitials);
+    final tokens = Theme.of(context).extension<SteadyDevThemeTokens>() ?? SteadyDevThemeTokens.light;
+
+    final updated = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            return Dialog(
+              backgroundColor: tokens.panel,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: tokens.dividerLine),
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Flexible(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.person_outline, size: 20, color: tokens.brandAction),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    'Developer Profile',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: tokens.primaryText,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.close, size: 20, color: tokens.secondaryText),
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: tokens.brandAction, width: 2),
+                          ),
+                          child: CircleAvatar(
+                            radius: 28,
+                            backgroundColor: tokens.softBrandSurface,
+                            child: Text(
+                              initialsController.text.isNotEmpty
+                                  ? initialsController.text.toUpperCase()
+                                  : _userInitials,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: tokens.brandAction,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Display Name',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: tokens.secondaryText,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: nameController,
+                        decoration: InputDecoration(
+                          hintText: 'e.g. Ise',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          isDense: true,
+                        ),
+                        onChanged: (val) {
+                          final trimmed = val.trim();
+                          if (trimmed.isNotEmpty) {
+                            final parts = trimmed.split(RegExp(r'\s+'));
+                            final computed = parts.length > 1
+                                ? '${parts.first[0]}${parts.last[0]}'.toUpperCase()
+                                : (trimmed.length >= 2
+                                    ? trimmed.substring(0, 2).toUpperCase()
+                                    : trimmed.toUpperCase());
+                            initialsController.text = computed;
+                            setDialogState(() {});
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Initials (max 3 chars)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: tokens.secondaryText,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: initialsController,
+                        maxLength: 3,
+                        decoration: InputDecoration(
+                          hintText: 'e.g. IS',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          isDense: true,
+                          counterText: '',
+                        ),
+                        onChanged: (_) => setDialogState(() {}),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: Text('Cancel', style: TextStyle(color: tokens.secondaryText)),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: tokens.brandAction,
+                              foregroundColor: tokens.brandActionInk,
+                            ),
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: const Text('Save Profile'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (updated == true && mounted) {
+      setState(() {
+        if (nameController.text.trim().isNotEmpty) {
+          _userName = nameController.text.trim();
+        }
+        if (initialsController.text.trim().isNotEmpty) {
+          _userInitials = initialsController.text.trim().toUpperCase();
+        }
+      });
     }
   }
 
@@ -645,31 +829,47 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Breadcrumb
-                          InkWell(
-                            onTap: _openSelectRepoDialog,
-                            borderRadius: BorderRadius.circular(6),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (showBadges) ...[
-                                    Text('Workspace', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
-                                    const SizedBox(width: 6),
-                                    Text('/', style: TextStyle(fontSize: 13, color: tokens.secondaryText)),
-                                    const SizedBox(width: 6),
-                                  ],
-                                  Icon(Icons.fork_right, size: 16, color: tokens.brandAction),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _repoName,
-                                    style: TextStyle(
-                                        fontSize: 14, fontWeight: FontWeight.bold, color: tokens.primaryText),
+                          // Sleek Git Repository Badge/Pill
+                          Tooltip(
+                            message: _repoPath.isNotEmpty
+                                ? 'Active repository: $_repoPath\nClick to switch repository'
+                                : 'Select Git repository',
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _openSelectRepoDialog,
+                                borderRadius: BorderRadius.circular(8),
+                                hoverColor: tokens.brandAction.withOpacity(0.08),
+                                child: Container(
+                                  constraints: const BoxConstraints(maxWidth: 260),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: tokens.subtleSurface,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: tokens.dividerLine),
                                   ),
-                                  const SizedBox(width: 4),
-                                  Icon(Icons.arrow_drop_down, size: 18, color: tokens.secondaryText),
-                                ],
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.fork_right, size: 15, color: tokens.brandAction),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          _repoName,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: tokens.primaryText,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Icon(Icons.arrow_drop_down, size: 16, color: tokens.secondaryText),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -713,6 +913,47 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                                           ),
                                         ],
                                       ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: _isSentryActive
+                                          ? tokens.brandAction.withValues(alpha: 0.15)
+                                          : tokens.badgeConfirmedBg,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: _isSentryActive
+                                            ? tokens.brandAction.withValues(alpha: 0.3)
+                                            : tokens.dividerLine,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _isSentryActive
+                                              ? Icons.cloud_done_outlined
+                                              : Icons.shield_outlined,
+                                          size: 13,
+                                          color: _isSentryActive
+                                              ? tokens.brandAction
+                                              : tokens.badgeConfirmedText,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _isSentryActive ? 'Local + Sentry' : 'Local',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: _isSentryActive
+                                                ? tokens.brandAction
+                                                : tokens.badgeConfirmedText,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -780,12 +1021,39 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                                     ),
                                   ],
                                   const SizedBox(width: 10),
-                                  CircleAvatar(
-                                    radius: 16,
-                                    backgroundColor: tokens.subtleSurface,
-                                    child: Text('AY',
-                                        style: TextStyle(
-                                            fontSize: 12, fontWeight: FontWeight.bold, color: tokens.primaryText)),
+                                  Tooltip(
+                                    message: 'Developer Profile: $_userName ($_userInitials)\nClick to edit initials',
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      shape: const CircleBorder(),
+                                      child: InkWell(
+                                        onTap: _openUserProfileDialog,
+                                        customBorder: const CircleBorder(),
+                                        hoverColor: tokens.brandAction.withOpacity(0.15),
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: tokens.brandAction.withOpacity(0.4),
+                                              width: 1.5,
+                                            ),
+                                          ),
+                                          child: CircleAvatar(
+                                            radius: 15,
+                                            backgroundColor: tokens.softBrandSurface,
+                                            child: Text(
+                                              _userInitials,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: tokens.brandAction,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),

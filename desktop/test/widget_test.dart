@@ -173,4 +173,49 @@ void main() {
       expect(cancelCalled, isTrue);
     },
   );
+
+  testWidgets(
+    'SteadyDev header renders sleek repository pill and dynamic avatar with profile dialog',
+    (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final themeManager = ThemeManager();
+      await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
+      await tester.pumpAndSettle();
+
+      // Verify repository selector pill renders repo name and fork icon without generic Workspace
+      expect(find.text('sample-project'), findsOneWidget);
+      expect(find.byIcon(Icons.fork_right), findsOneWidget);
+      expect(find.text('Workspace'), findsNothing);
+
+      // Verify dynamic initials render IS by default instead of AY
+      expect(find.text('IS'), findsOneWidget);
+      expect(find.text('AY'), findsNothing);
+
+      // Scroll into view if needed and tap avatar to open Developer Profile dialog
+      await tester.ensureVisible(find.text('IS'));
+      await tester.tap(find.text('IS'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Developer Profile'), findsOneWidget);
+      expect(find.text('Display Name'), findsOneWidget);
+      expect(find.text('Initials (max 3 chars)'), findsOneWidget);
+
+      // Change initials to GS
+      final initialsField = find.widgetWithText(TextField, 'IS');
+      await tester.enterText(initialsField, 'GS');
+      await tester.pumpAndSettle();
+
+      // Save profile
+      await tester.tap(find.text('Save Profile'));
+      await tester.pumpAndSettle();
+
+      // Verify dialog dismissed and avatar now renders GS
+      expect(find.text('Developer Profile'), findsNothing);
+      expect(find.text('GS'), findsOneWidget);
+      expect(find.text('IS'), findsNothing);
+    },
+  );
 }

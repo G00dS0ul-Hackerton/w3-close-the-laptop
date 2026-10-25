@@ -20,6 +20,11 @@ class SteadyDevApiClient {
   final http.Client _client;
   int _latestRequestId = 0;
 
+  double? lastUiDurationMs;
+  double? lastApiLatencyMs;
+  double? lastBackendDurationMs;
+  String? lastRunId;
+
   SteadyDevApiClient({
     required this.baseUrl,
     required this.token,
@@ -43,9 +48,13 @@ class SteadyDevApiClient {
     }
   }
 
-  Future<http.Response> _safePost(Uri url, {Object? body}) async {
+  Future<http.Response> _safePost(Uri url, {Object? body, Map<String, String>? extraHeaders}) async {
+    final merged = Map<String, String>.from(_authHeaders);
+    if (extraHeaders != null) {
+      merged.addAll(extraHeaders);
+    }
     try {
-      return await _client.post(url, headers: _authHeaders, body: body);
+      return await _client.post(url, headers: merged, body: body);
     } on http.ClientException catch (e) {
       throw ApiException(
           'engine_offline', 'Cannot reach local engine at $baseUrl: ${e.message}', 503);
@@ -178,7 +187,7 @@ class SteadyDevApiClient {
     return [];
   }
 
-  /// Execute AI code review against git diff and check receipts.
+  /// Execute AI code review against git diff and check receipts with cross-process correlation.
   Future<ReviewResultData?> requestReview({
     required String repoPath,
     required String intention,
@@ -192,8 +201,14 @@ class SteadyDevApiClient {
     String? fallbackModel,
     bool includeFallbackModel = false,
     bool? useBaselineFallback,
+    String? sentryTrace,
+    String? baggage,
+    String? runId,
   }) async {
     final requestId = ++_latestRequestId;
+    final uiStopwatch = Stopwatch()..start();
+    final effectiveRunId = runId ?? 'run-${DateTime.now().millisecondsSinceEpoch}';
+    lastRunId = effectiveRunId;
 
     final Map<String, dynamic> bodyMap = {
       'repo_path': repoPath,
@@ -218,10 +233,23 @@ class SteadyDevApiClient {
 
     final body = jsonEncode(bodyMap);
 
+    final extraHeaders = <String, String>{
+      'X-Run-ID': effectiveRunId,
+    };
+    if (sentryTrace != null && sentryTrace.isNotEmpty) {
+      extraHeaders['sentry-trace'] = sentryTrace;
+    }
+    if (baggage != null && baggage.isNotEmpty) {
+      extraHeaders['baggage'] = baggage;
+    }
+
+    final apiStopwatch = Stopwatch()..start();
     final res = await _safePost(
       Uri.parse('$baseUrl/api/review'),
       body: body,
+      extraHeaders: extraHeaders,
     );
+    lastApiLatencyMs = apiStopwatch.elapsedMilliseconds.toDouble();
 
     // C-3: Discard late-arriving responses if another request was triggered
     if (requestId != _latestRequestId) {
@@ -230,6 +258,13 @@ class SteadyDevApiClient {
 
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final timingMs = data['timing_ms'];
+      if (timingMs is Map && timingMs['total_duration_ms'] is num) {
+        lastBackendDurationMs = (timingMs['total_duration_ms'] as num).toDouble();
+      } else {
+        lastBackendDurationMs = null;
+      }
+      lastUiDurationMs = uiStopwatch.elapsedMilliseconds.toDouble();
       return ReviewResultData.fromJson(data);
     } else if (res.statusCode == 401) {
       throw ApiException('unauthorized', 'Authentication token mismatch', 401);
