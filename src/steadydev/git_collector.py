@@ -100,6 +100,7 @@ def _run_git_cmd(repo_root: Path, args: list[str]) -> subprocess.CompletedProces
         encoding="utf-8",
         errors="replace",
         check=False,
+        stdin=subprocess.DEVNULL,
     )
 
 

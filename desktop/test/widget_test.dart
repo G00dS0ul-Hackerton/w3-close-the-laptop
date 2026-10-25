@@ -218,4 +218,80 @@ void main() {
       expect(find.text('IS'), findsNothing);
     },
   );
+
+  testWidgets(
+    'StartupErrorView displays sanitized error, diagnostics snippet, log path, and calls retry',
+    (tester) async {
+      bool retryCalled = false;
+      bool offlineCalled = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StartupErrorView(
+              errorMessage: 'Process exited with code 1: Python module not found',
+              logPath: r'C:\Users\<USER>\.steadydev\startup.log',
+              recentStderr: const [
+                'Traceback (most recent call last):',
+                'ModuleNotFoundError: No module named steadydev',
+              ],
+              onRetry: () => retryCalled = true,
+              onDismissOffline: () => offlineCalled = true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('SteadyDev Engine Offline'), findsOneWidget);
+      expect(
+        find.text('Process exited with code 1: Python module not found'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(r'C:\Users\<USER>\.steadydev\startup.log'),
+        findsOneWidget,
+      );
+
+      // Expand diagnostics
+      await tester.tap(find.textContaining('Show stderr diagnostics'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('ModuleNotFoundError: No module named steadydev'),
+        findsOneWidget,
+      );
+
+      // Tap retry
+      await tester.tap(find.text('Retry Startup'));
+      await tester.pumpAndSettle();
+      expect(retryCalled, isTrue);
+
+      // Tap offline fallback
+      await tester.tap(find.text('Work Offline (Sample Data)'));
+      await tester.pumpAndSettle();
+      expect(offlineCalled, isTrue);
+    },
+  );
+
+  testWidgets(
+    'SteadyDevScaffold renders topbar horizontal brand logo with accessible semantics',
+    (tester) async {
+      final themeManager = ThemeManager();
+      await tester.pumpWidget(SteadyDevApp(themeManager: themeManager));
+      await tester.pumpAndSettle();
+
+      // Topbar brand logo exists with accessible semantics label
+      final semanticsFinder = find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            widget.properties.label == 'SteadyDev' &&
+            widget.properties.image == true,
+      );
+      expect(semanticsFinder, findsAtLeastNWidgets(1));
+
+      // Sidebar brand text nodes are preserved intact
+      expect(find.text('SteadyDev'), findsOneWidget);
+      expect(find.text('Close the Laptop'), findsOneWidget);
+    },
+  );
 }

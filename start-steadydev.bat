@@ -81,9 +81,21 @@ if "%~1"=="--test-syntax" (
     exit /b 0
 )
 
+REM Handle create shortcut flag
+if "%~1"=="--create-shortcut" (
+    powershell.exe -ExecutionPolicy Bypass -File "%ROOT_DIR%create-shortcut.ps1" %2 %3
+    if "%~2"=="" exit /b !ERRORLEVEL!
+    if "%~2"=="-Force" if "%~3"=="" exit /b !ERRORLEVEL!
+)
+if "%~2"=="--create-shortcut" (
+    powershell.exe -ExecutionPolicy Bypass -File "%ROOT_DIR%create-shortcut.ps1"
+)
+
 REM 5. Resolve Target Git Repository
-if not "%~1"=="" (
+if not "%~1"=="" if not "%~1"=="--create-shortcut" (
     set TARGET_REPO=%~1
+) else if not "%~2"=="" if not "%~2"=="--create-shortcut" if not "%~2"=="-Force" (
+    set TARGET_REPO=%~2
 ) else (
     if exist "%CD%\.git" (
         set TARGET_REPO=%CD%
@@ -122,7 +134,7 @@ set BACKEND_READY=0
 for /L %%i in (1,1,20) do (
     if !BACKEND_READY! EQU 0 (
         curl.exe --connect-timeout 1 --max-time 2 -s http://127.0.0.1:8765/api/health >nul 2>nul
-        if !ERRORLEVEL% EQU 0 (
+        if !ERRORLEVEL! EQU 0 (
             set BACKEND_READY=1
             echo [OK] Backend engine is ready.
         ) else (
@@ -132,8 +144,11 @@ for /L %%i in (1,1,20) do (
 )
 
 if !BACKEND_READY! EQU 0 (
-    echo [WARNING] Backend engine did not respond on port 8765 within 20s.
-    echo Launching desktop client anyway; you can click 'Retry' once the engine starts.
+    echo [ERROR] SteadyDev backend engine failed to respond on port 8765 within 20s.
+    echo Please check prerequisites or inspect backend logs.
+    echo SteadyDev desktop client was not launched.
+    pause
+    exit /b 1
 )
 
 REM 8. Launch Flutter Desktop Client
@@ -143,8 +158,7 @@ start "" "%DESKTOP_EXE%"
 echo.
 echo ====================================================================
 echo   SteadyDev is now running!
-echo   If the desktop window displays an offline banner on launch, click 'Retry'.
-echo   Press any key to close this launcher window (or keep it open for logs).
+echo   Press any key to close this launcher window - or keep it open for logs -
 echo ====================================================================
 echo.
 pause

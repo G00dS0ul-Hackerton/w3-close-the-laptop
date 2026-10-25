@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app.dart';
-import 'services/api_client.dart';
+import 'services/process_manager.dart';
 import 'theme/theme_manager.dart';
 
 export 'app.dart';
@@ -11,13 +11,11 @@ void main() async {
   final themeManager = ThemeManager();
   await themeManager.loadPreference();
 
-  final client = SteadyDevApiClient(
-    baseUrl: 'http://127.0.0.1:8765',
-    token: 'dev-token-123',
-  );
+  final processManager = BackendProcessManager();
 
   runApp(SteadyDevApp(
     themeManager: themeManager,
-    initialApiClient: client,
+    processManager: processManager,
+    autoStartBackend: true,
   ));
 }

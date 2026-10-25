@@ -829,49 +829,71 @@ class _SteadyDevScaffoldState extends State<SteadyDevScaffold> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Sleek Git Repository Badge/Pill
-                          Tooltip(
-                            message: _repoPath.isNotEmpty
-                                ? 'Active repository: $_repoPath\nClick to switch repository'
-                                : 'Select Git repository',
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: _openSelectRepoDialog,
-                                borderRadius: BorderRadius.circular(8),
-                                hoverColor: tokens.brandAction.withOpacity(0.08),
-                                child: Container(
-                                  constraints: const BoxConstraints(maxWidth: 260),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: tokens.subtleSurface,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: tokens.dividerLine),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.fork_right, size: 15, color: tokens.brandAction),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          _repoName,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                            color: tokens.primaryText,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                          maxLines: 1,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Icon(Icons.arrow_drop_down, size: 16, color: tokens.secondaryText),
-                                    ],
+                          // Brand Logo & Sleek Git Repository Badge/Pill
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Semantics(
+                                label: 'SteadyDev',
+                                image: true,
+                                child: SizedBox(
+                                  height: 24,
+                                  child: AspectRatio(
+                                    aspectRatio: 1200 / 240, // 5:1
+                                    child: Image.asset(
+                                      Theme.of(context).brightness == Brightness.dark
+                                          ? 'assets/brand/steadydev-horizontal-dark.png'
+                                          : 'assets/brand/steadydev-horizontal-light.png',
+                                      fit: BoxFit.contain,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
+                              const SizedBox(width: 10),
+                              Tooltip(
+                                message: _repoPath.isNotEmpty
+                                    ? 'Active repository: $_repoPath\nClick to switch repository'
+                                    : 'Select Git repository',
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: _openSelectRepoDialog,
+                                    borderRadius: BorderRadius.circular(8),
+                                    hoverColor: tokens.brandAction.withOpacity(0.08),
+                                    child: Container(
+                                      constraints: const BoxConstraints(maxWidth: 200),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: tokens.subtleSurface,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: tokens.dividerLine),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.fork_right, size: 15, color: tokens.brandAction),
+                                          const SizedBox(width: 6),
+                                          Flexible(
+                                            child: Text(
+                                              _repoName,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: tokens.primaryText,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Icon(Icons.arrow_drop_down, size: 16, color: tokens.secondaryText),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(width: 8),
 
