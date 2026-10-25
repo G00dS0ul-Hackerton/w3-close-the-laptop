@@ -1301,8 +1301,13 @@ def start_stdin_watchdog() -> None:
 
     def _watch():
         try:
-            sys.stdin.buffer.read(1)
-        except (OSError, ValueError):
+            if sys.stdin is None or sys.stdin.closed:
+                return
+            b = sys.stdin.buffer.read(1)
+            if b:
+                while b:
+                    b = sys.stdin.buffer.read(1)
+        except (OSError, ValueError, AttributeError):
             pass
         import os
 
@@ -1345,10 +1350,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    start_stdin_watchdog()
     server = create_server(
         args.repo_path, port=args.port, token=args.token, db_path=args.db_path
     )
+    start_stdin_watchdog()
     bound_port = server.server_port
     token = server.token
 

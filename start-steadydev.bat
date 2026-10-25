@@ -1,9 +1,9 @@
 @echo off
 setlocal EnableDelayedExpansion
-title SteadyDev Launcher (Preview v0.1.0)
+title SteadyDev Launcher (Preview v0.1.1)
 
 echo ====================================================================
-echo   SteadyDev - Close Your Laptop with Clarity (Preview v0.1.0)
+echo   SteadyDev - Close Your Laptop with Clarity (Preview v0.1.1)
 echo   Local-First Open-Weight Code Reviewer
 echo ====================================================================
 echo.
@@ -92,11 +92,15 @@ if "%~2"=="--create-shortcut" (
 )
 
 REM 5. Resolve Target Git Repository
-if not "%~1"=="" if not "%~1"=="--create-shortcut" (
+set TARGET_REPO=
+if "%~1"=="--create-shortcut" (
+    if not "%~2"=="" if not "%~2"=="-Force" set TARGET_REPO=%~2
+    if not "%~3"=="" set TARGET_REPO=%~3
+) else if not "%~1"=="" (
     set TARGET_REPO=%~1
-) else if not "%~2"=="" if not "%~2"=="--create-shortcut" if not "%~2"=="-Force" (
-    set TARGET_REPO=%~2
-) else (
+)
+
+if "!TARGET_REPO!"=="" (
     if exist "%CD%\.git" (
         set TARGET_REPO=%CD%
     ) else (

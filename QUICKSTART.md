@@ -1,4 +1,4 @@
-# SteadyDev Quickstart Guide (Windows Preview v0.1.0)
+# SteadyDev Quickstart Guide (Windows Preview v0.1.1)
 
 Welcome to **SteadyDev**! SteadyDev is a local-first, open-weight AI companion designed to help developers end their work sessions with clarity.
 
@@ -42,12 +42,13 @@ SteadyDev analyzes local git diffs and test receipts. Ensure [Git for Windows](h
 ## 3. Launching SteadyDev
 
 ### Quick Launch (Recommended)
-1. Extract `steadydev-windows-preview-v0.1.0.zip` to a folder of your choice (e.g. `C:\Tools\SteadyDev`).
+1. Extract `steadydev-windows-preview-v0.1.1.zip` to a folder of your choice (e.g. `C:\Tools\SteadyDev`).
 2. Double-click **`start-steadydev.bat`**.
    - The launcher will check for `uv` or `python`.
    - It will check if Ollama is running (or notify you of baseline mode).
    - It will start the backend loopback server minimized in the background.
    - It will launch the Flutter desktop application (`desktop\desktop.exe`).
+   *(Alternatively, run `desktop\desktop.exe` directly or run `powershell -File create-shortcut.ps1` to place a `SteadyDev` shortcut on your Desktop!)*
 
 ### Manual Launch (Two-Terminal Workflow)
 If you prefer running components directly from PowerShell or Command Prompt:

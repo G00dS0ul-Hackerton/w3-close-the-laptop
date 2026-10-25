@@ -93,9 +93,9 @@ Milestone M5 evaluated whether cloud LoRA fine-tuning using Thinking Machines' T
 ### Milestone M6 — Evaluation, Release Handoff & Submission Verification (Completed)
 Milestone M6 validated final release configuration, executed full test regression suites, and prepared submission evidence.
 - **Full Test Suite Passing:**
-  - **Python Review Engine:** 168/168 unit and integration tests passing (`pytest -q` in ~3.4 mins).
-  - **Flutter Desktop Client:** 38/38 widget, theme, and correlation tests passing (`flutter test` in ~26s).
-  - **Boundary Verification Matrix:** 7/7 scenarios passing (`verify_m4_trace_matrix.py` in ~1.7s).
+  - **Python Review Engine:** 173/173 unit, integration, and batch launcher regression tests passing (`pytest -q`).
+  - **Flutter Desktop Client:** 40/40 widget, theme, process manager, and branding tests passing (`flutter test`).
+  - **Boundary Verification Matrix:** 7/7 scenarios passing (`verify_m4_trace_matrix.py`).
 - **Honest CPU Benchmark Disclosed:**
   - Multi-chunk review on local CPU: Gemma 3 4B required **16.66 minutes (999.5s)**; Qwen 2.5 Coder 3B required **10.69 minutes (641.6s)**.
 - **Claim-to-Evidence Audit:** Zero unsupported claims; documented model quirks (Gemma return-type contradiction, Qwen prompt leakage) and offline vs telemetry boundaries.
@@ -104,11 +104,22 @@ Milestone M6 validated final release configuration, executed full test regressio
 
 ## Local Setup & Quickstart
 
-### Downloadable Windows Preview Release (v0.1.0)
-For users who want to run the pre-built desktop client without compiling Flutter from source:
-1. Download **`steadydev-windows-preview-v0.1.0.zip`** from [GitHub Releases](https://github.com/G00dS0ul-Hackerton/w3-close-the-laptop/releases).
-2. Extract the archive and review [QUICKSTART.md](QUICKSTART.md).
-3. Double-click **`start-steadydev.bat`** to launch both the Python engine and Flutter desktop UI.
+### Downloadable Windows Preview Release (v0.1.1)
+For users running on Windows 10/11 x64:
+1. Download **[`steadydev-windows-preview-v0.1.1.zip`](https://github.com/G00dS0ul-Hackerton/w3-close-the-laptop/releases/download/v0.1.1/steadydev-windows-preview-v0.1.1.zip)** (12.9 MB) and its SHA-256 checksum from the [GitHub v0.1.1 Release](https://github.com/G00dS0ul-Hackerton/w3-close-the-laptop/releases/tag/v0.1.1).
+2. Extract the archive anywhere (e.g. `C:\Tools\SteadyDev` or your Downloads folder).
+3. **Launch SteadyDev:**
+   - **Silent Startup (Recommended):** Run `desktop\desktop.exe` directly, or run `powershell -File create-shortcut.ps1` to place a `SteadyDev` shortcut with the custom brand icon on your Desktop. The desktop application directly manages the Python engine with `CREATE_NO_WINDOW`—zero launcher consoles, zero backend popups, and zero window flashes.
+   - **Single-Click Script:** Double-click **`start-steadydev.bat`** to check prerequisites (`uv`, `git`, Ollama), initialize the starter `sample-project`, and launch the app.
+4. Review [QUICKSTART.md](QUICKSTART.md) for detailed prerequisites, model setup, and troubleshooting.
+
+### What's New in v0.1.1:
+- **Official Brand Kit Integration:** Embedded executable icon (`steadydev.ico`), taskbar grouping, window icon, and theme-aware topbar logo (5:1 aspect ratio, accessible semantics).
+- **Silent Windows Startup:** Flutter desktop application owns the backend process lifecycle with `CREATE_NO_WINDOW`, eliminating console flashes and separate minimized terminals.
+- **Process Lifecycle & Watchdog:** Maintained stdin pipe and watchdog termination so that backend processes clean up immediately when the desktop closes or exits abnormally.
+- **In-App Startup Diagnostics:** Added `StartupErrorView` with Retry button and diagnostics log locator (`.steadydev/startup.log`) for visible, actionable startup errors.
+- **Launcher Defect Resolution:** Fixed `!ERRORLEVEL!` delayed expansion syntax typo and eliminated backend readiness contradiction in `start-steadydev.bat`.
+- **Windows Subprocess Isolation:** Child CLI processes now explicitly isolate stdin pipes (`stdin=DEVNULL`), preventing `git.exe` reader deadlocks on Windows hosts.
 
 ---
 

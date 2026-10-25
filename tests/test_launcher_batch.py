@@ -132,3 +132,40 @@ def test_create_shortcut_script_forced(tmp_path):
     lnk_file = tmp_path / "SteadyDev.lnk"
     assert lnk_file.exists()
     assert lnk_file.stat().st_size > 0
+
+
+def test_launcher_target_repo_resolution_default(tmp_path):
+    """Regression test for chained IF bug: running start-steadydev.bat with no arguments
+    must resolve TARGET_REPO to a non-empty git directory (sample-project or current dir),
+    never leaving !TARGET_REPO! empty.
+    """
+    bat_path = Path(__file__).resolve().parent.parent / "start-steadydev.bat"
+    content = bat_path.read_text(encoding="utf-8")
+
+    start_marker = "REM 5. Resolve Target Git Repository"
+    end_marker = "echo [OK] Target Git Repository: !TARGET_REPO!"
+    idx1 = content.find(start_marker)
+    idx2 = content.find(end_marker)
+    assert idx1 != -1 and idx2 != -1, "Target repo block not found"
+
+    code_snippet = content[idx1 : idx2 + len(end_marker)]
+    test_bat = tmp_path / "test_repo_resolution.bat"
+    test_bat.write_text(
+        f"@echo off\nsetlocal EnableDelayedExpansion\nset ROOT_DIR={tmp_path}\\\nset CD={tmp_path}\n{code_snippet}\necho FINAL_TARGET_REPO=[!TARGET_REPO!]\n",
+        encoding="utf-8",
+    )
+
+    res = subprocess.run(
+        ["cmd.exe", "/c", str(test_bat)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert "FINAL_TARGET_REPO=[]" not in res.stdout, (
+        f"TARGET_REPO resolved to empty string when no arguments provided!\nSTDOUT:\n{res.stdout}"
+    )
+    assert "sample-project]" in res.stdout or f"FINAL_TARGET_REPO=[" in res.stdout, (
+        f"Expected valid sample-project or current directory, got:\n{res.stdout}"
+    )
+
