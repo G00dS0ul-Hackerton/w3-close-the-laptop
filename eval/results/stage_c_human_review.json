@@ -1,0 +1,164 @@
+{
+  "reference_automated_receipt": "eval/results/stage_c_receipt.json",
+  "review_timestamp": "2026-10-25T02:40:00+01:00",
+  "reviewed_by": "human_audit_and_reassessment",
+  "governing_rules": [
+    "C-4: Cross-examine model summaries against diffs, separate 3-layer outputs, and distinguish edits from missing receipts",
+    "C-10: Do not manufacture aggregate precision or reframe model allegations during finding validation",
+    "AGENTS.md: Factual truth strictly judged against frozen packet evidence"
+  ],
+  "frozen_packet_receipt_verification": {
+    "packet_id": "pkt-eval-t01",
+    "receipt_actually_supplied": true,
+    "receipt_id": "rcpt-t01-01",
+    "command": "pytest -q tests/test_auth.py",
+    "exit_code": 0,
+    "output_summary": "2 passed in 0.04s",
+    "timestamp_utc": "2026-10-21T02:05:00Z",
+    "scope_verification": {
+      "target_file_in_diff": "tests/test_auth.py",
+      "exercised_implementation_in_diff": "src/auth.py",
+      "test_case_in_diff": "test_expired_token asserting validate_token(token) is False",
+      "scope_match": "exact - tests the exact token expiration logic modified in src/auth.py"
+    },
+    "snapshot_association": {
+      "session_timestamp_utc": "2026-10-21T02:00:00Z",
+      "receipt_timestamp_utc": "2026-10-21T02:05:00Z",
+      "freshness": "+5 minutes after session start, executed on active snapshot",
+      "status": "valid, fresh, passing receipt associated with active snapshot"
+    }
+  },
+  "cases": {
+    "baseline": {
+      "pkt-eval-t02": {
+        "case_name": "Case 1 (Mismatch)",
+        "original_screening": {
+          "layer1_findings": "MISSED_GAP",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "HIGH_CONTINUITY"
+        },
+        "corrected_assessment": {
+          "layer1_findings": "MISSED_GAP",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "HIGH_CONTINUITY"
+        },
+        "assessment_notes": {
+          "layer1": "Rule baseline has no semantic code understanding; missed the /home vs /dashboard route contradiction. MISSED_GAP is accurate.",
+          "layer2": "Accurately reports diff file count (1) and check count (1). FACTUAL_ACCOUNTING is accurate.",
+          "layer3": "Names src/views.py and acceptance criteria while disclosing baseline rule limits. HIGH_CONTINUITY is accurate."
+        }
+      },
+      "pkt-eval-t01": {
+        "case_name": "Case 2 (Clean Negative)",
+        "original_screening": {
+          "layer1_findings": "CORRECT_CLEAN",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "ACTIONABLE_CONTINUITY"
+        },
+        "corrected_assessment": {
+          "layer1_findings": "CORRECT_CLEAN",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "ACTIONABLE_CONTINUITY"
+        },
+        "assessment_notes": {
+          "layer1": "Clean code with passing receipt; 0 findings is the expected result. CORRECT_CLEAN is accurate.",
+          "layer2": "Accurately accounts for 2 files and 1 check receipt. FACTUAL_ACCOUNTING is accurate.",
+          "layer3": "Provides actionable orientation toward remaining criteria. ACTIONABLE_CONTINUITY is accurate."
+        }
+      }
+    },
+    "qwen2.5-coder:3b": {
+      "pkt-eval-t02": {
+        "case_name": "Case 1 (Mismatch)",
+        "original_screening": {
+          "layer1_findings": "MISSED_GAP",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "DISMISSIVE_NOTE"
+        },
+        "corrected_assessment": {
+          "layer1_findings": "MISSED_GAP",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "DISMISSIVE_NOTE"
+        },
+        "assessment_notes": {
+          "layer1": "Missed the semantic contradiction entirely. MISSED_GAP is accurate.",
+          "layer2": "Truthfully describes what changed and that test passed, though unaware of intention mismatch. FACTUAL_ACCOUNTING is accepted.",
+          "layer3": "Dismissed open defect with 'No further action needed.' DISMISSIVE_NOTE is accurate."
+        }
+      },
+      "pkt-eval-t01": {
+        "case_name": "Case 2 (Clean Negative)",
+        "original_screening": {
+          "layer1_findings": "CORRECT_CLEAN",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "ACTIONABLE_CONTINUITY"
+        },
+        "corrected_assessment": {
+          "layer1_findings": "CORRECT_CLEAN",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "NON_ACTIONABLE_CLOSURE"
+        },
+        "assessment_notes": {
+          "layer1": "Zero false alarms emitted on clean session. CORRECT_CLEAN is accurate.",
+          "layer2": "Truthful diff and check accounting. FACTUAL_ACCOUNTING is accurate.",
+          "layer3": "CORRECTED FROM ACTIONABLE_CONTINUITY TO NON_ACTIONABLE_CLOSURE. 'No further action needed' provides zero next steps, zero restart guidance, and zero continuity for tomorrow. It must not receive an unqualified positive continuity label."
+        }
+      }
+    },
+    "gemma3:4b": {
+      "pkt-eval-t02": {
+        "case_name": "Case 1 (Mismatch)",
+        "original_screening": {
+          "layer1_findings": "CORRECT_DETECTION",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "HIGH_CONTINUITY"
+        },
+        "corrected_assessment": {
+          "layer1_findings": "CORRECT_DETECTION",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "HIGH_CONTINUITY"
+        },
+        "assessment_notes": {
+          "layer1": "Caught semantic intention mismatch to /dashboard vs /home at src/views.py:40. CORRECT_DETECTION is accurate.",
+          "layer2": "Distinguished passing test from unfulfilled intention. FACTUAL_ACCOUNTING is accurate.",
+          "layer3": "Directs developer to update views.py to redirect to /dashboard. HIGH_CONTINUITY is accurate."
+        }
+      },
+      "pkt-eval-t01": {
+        "case_name": "Case 2 (Clean Negative)",
+        "original_screening": {
+          "layer1_findings": "FALSE_ALARM",
+          "layer2_summary": "FACTUAL_ACCOUNTING",
+          "layer3_restart": "ACTIONABLE_CONTINUITY"
+        },
+        "corrected_assessment": {
+          "layer1_findings": "FALSE_ALARM",
+          "layer2_summary": "FALSE_RECEIPT_ABSENCE_CLAIM",
+          "layer3_restart": "UNNECESSARY_RERUN_INSTRUCTION"
+        },
+        "dimensions": {
+          "layer1": {
+            "factual_support": "unsupported or contradicted",
+            "usefulness": "zero",
+            "redundancy": "non-redundant"
+          },
+          "layer2": {
+            "factual_support": "unsupported or contradicted",
+            "usefulness": "zero",
+            "redundancy": "non-redundant"
+          },
+          "layer3": {
+            "factual_support": "unsupported or contradicted",
+            "usefulness": "zero",
+            "continuity": "misleading"
+          }
+        },
+        "assessment_notes": {
+          "layer1": "Model claimed 'no test receipts are recorded' despite rcpt-t01-01 being explicitly supplied in the packet. FALSE_ALARM with 'unsupported or contradicted' is accurate.",
+          "layer2": "CORRECTED FROM FACTUAL_ACCOUNTING TO FALSE_RECEIPT_ABSENCE_CLAIM. Summary stated 'however the implementation lacks a corresponding check receipt'. This is factually contradicted by the packet. A false receipt-absence claim must never receive FACTUAL_ACCOUNTING (C-4, C-10).",
+          "layer3": "CORRECTED FROM ACTIONABLE_CONTINUITY TO UNNECESSARY_RERUN_INSTRUCTION. Restart note instructed developer to 'Run pytest -q tests/test_auth.py again to record the test execution results'. The command had already been run and recorded as passing in rcpt-t01-01. Instructing an unnecessary rerun based on model blindness must never receive an unqualified positive continuity label."
+        }
+      }
+    }
+  }
+}

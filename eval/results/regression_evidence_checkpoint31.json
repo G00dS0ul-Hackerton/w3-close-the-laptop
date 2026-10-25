@@ -1,0 +1,200 @@
+{
+  "provenance": {
+    "checkpoint": 31,
+    "timestamp_utc": "2026-10-25T00:35:00Z",
+    "commit_ref": "dd08936",
+    "description": "Immutable regression evidence of 15 live model findings across 6-chunk dirty diff with 0 check receipts",
+    "hardware": "Local CPU (Windows)",
+    "evaluation_rules": {
+      "dimensions": [
+        "factual_support",
+        "usefulness",
+        "redundancy"
+      ],
+      "canonical_factual_labels": [
+        "supported evidence gap",
+        "supported semantic issue",
+        "intentional/expected behaviour",
+        "unsupported or contradicted",
+        "insufficient evidence"
+      ]
+    }
+  },
+  "gemma3_4b": {
+    "model": "gemma3:4b",
+    "total_findings": 9,
+    "findings": [
+      {
+        "index": 1,
+        "locator": "desktop/lib/dialogs/select_model_dialog.dart:1",
+        "original_title": "The 'show' method has been modified to return a 'ReviewExecutionConfig?', but no check receipt is recorded for this change.",
+        "original_description": "Added 'static Future<ReviewExecutionConfig?> showConfig(...)' and 'static Future<String?> show(...)' methods.",
+        "packet_evidence": "Diff Chunk 1 confirms showConfig and show were added/modified; <check_receipts> in packet is empty. However, the title's factual assertion that 'show' returns ReviewExecutionConfig? is contradicted by code where show returns String?.",
+        "factual_support": "unsupported or contradicted",
+        "usefulness": "low",
+        "redundancy": "redundant",
+        "notes": "Original title contains an inaccurate factual allegation regarding show return type. The missing receipt observation is valid but redundant with Finding 2."
+      },
+      {
+        "index": 2,
+        "locator": "desktop/lib/dialogs/select_model_dialog.dart:1",
+        "original_title": "The 'show' method has been modified to return a 'ReviewExecutionConfig?', but no check receipt is recorded for this change.",
+        "original_description": "Added 'static Future<String?> show(...)' methods.",
+        "packet_evidence": "Contradicted by Diff Chunk 1 where show explicitly returns Future<String?>.",
+        "factual_support": "unsupported or contradicted",
+        "usefulness": "zero",
+        "redundancy": "redundant",
+        "notes": "Exact duplicate title of Finding 1 asserting an ungrounded return type."
+      },
+      {
+        "index": 3,
+        "locator": "desktop/lib/models/session_models.dart:1",
+        "original_title": "The 'deadlineSeconds' field in 'ReviewDiagnosticsData' is now nullable and defaulted to 180.0, but there is no check receipt to verify this change.",
+        "original_description": "Diff introduces 'final double? deadlineSeconds;' and sets it to 180.0 if not provided.",
+        "packet_evidence": "Diff Chunk 2 confirms field definition and ternary fallback; <check_receipts> is empty.",
+        "factual_support": "supported evidence gap",
+        "usefulness": "high",
+        "redundancy": "non-redundant",
+        "notes": "Accurate observation that code changed without attached verification check receipts."
+      },
+      {
+        "index": 4,
+        "locator": "desktop/lib/models/session_models.dart:1",
+        "original_title": "The 'ReviewExecutionConfig' class has been added, but there is no check receipt to verify its inclusion or the correctness of its default values.",
+        "original_description": "Diff introduces a new class with several fields and constructors.",
+        "packet_evidence": "Diff Chunk 2 confirms class and defaults; <check_receipts> is empty.",
+        "factual_support": "supported evidence gap",
+        "usefulness": "moderate",
+        "redundancy": "non-redundant",
+        "notes": "Accurate observation of unverified new class addition."
+      },
+      {
+        "index": 5,
+        "locator": "desktop/lib/services/api_client.dart:181",
+        "original_title": "No check recorded for API client changes.",
+        "original_description": "Added new fields to the bodyMap, including workflowTimeoutSeconds, includeWorkflowTimeout, fallbackModel, includeFallbackModel and useBaselineFallback.",
+        "packet_evidence": "Diff Chunk 3 confirms these exact parameter bindings in bodyMap; <check_receipts> is empty.",
+        "factual_support": "supported evidence gap",
+        "usefulness": "high",
+        "redundancy": "non-redundant",
+        "notes": "Accurate observation of API payload expansion without attached test receipt."
+      },
+      {
+        "index": 6,
+        "locator": "desktop/lib/dialogs/diagnostics_dialog.dart:1",
+        "original_title": "No check recorded for new polling timer setup.",
+        "original_description": "Added Timer.periodic to initiate 1s live polling for countdown and chunk progress.",
+        "packet_evidence": "Diff adds Timer.periodic with Duration(milliseconds: 500); the 1s interval assertion is contradicted by 500ms code, while missing receipt is factual.",
+        "factual_support": "unsupported or contradicted",
+        "usefulness": "moderate",
+        "redundancy": "non-redundant",
+        "notes": "Mixed factual claim: polling duration was 500ms, not 1s. Factual support fails on the specific interval allegation."
+      },
+      {
+        "index": 7,
+        "locator": "desktop/lib/dialogs/diagnostics_dialog.dart:1",
+        "original_title": "No check recorded for new _pollDiagnosticsSilent function.",
+        "original_description": "Added a private method to handle silent polling of diagnostics and telemetry config.",
+        "packet_evidence": "Diff Chunk 4 adds method; <check_receipts> is empty.",
+        "factual_support": "supported evidence gap",
+        "usefulness": "moderate",
+        "redundancy": "partially_redundant",
+        "notes": "Valid missing receipt observation for helper method; partially redundant with overall dialog review."
+      },
+      {
+        "index": 8,
+        "locator": "desktop/lib/views/session_view.dart:1",
+        "original_title": "No check recorded for modified layout - the executionConfig parameter was added to the SessionView class, but there is no test or viewport verification associated with this change.",
+        "original_description": "diff adds 'final ReviewExecutionConfig? executionConfig;' to the SessionView constructor.",
+        "packet_evidence": "Diff Chunk 5 confirms constructor addition; <check_receipts> is empty.",
+        "factual_support": "supported evidence gap",
+        "usefulness": "moderate",
+        "redundancy": "non-redundant",
+        "notes": "Correctly categorized as unverified receipt for layout widget without claiming layout was broken."
+      },
+      {
+        "index": 9,
+        "locator": "desktop/lib/views/session_view.dart:1",
+        "original_title": "No check recorded for modified text - the AI review count and baseline evaluation text was updated, but there is no test or viewport verification associated with this change.",
+        "original_description": "diff updates the text displayed to '$aiCount chunk(s) reviewed by AI, $baselineCount chunk(s) evaluated via baseline floor (180s deadline).' ",
+        "packet_evidence": "Diff Chunk 5 confirms text change; <check_receipts> is empty.",
+        "factual_support": "supported evidence gap",
+        "usefulness": "low",
+        "redundancy": "non-redundant",
+        "notes": "Valid receipt gap on UI text modification, though low operational severity."
+      }
+    ]
+  },
+  "qwen2_5_coder_3b": {
+    "model": "qwen2.5-coder:3b",
+    "total_findings": 6,
+    "findings": [
+      {
+        "index": 1,
+        "locator": "desktop/lib/dialogs/select_model_dialog.dart:1",
+        "original_title": "The 'showConfig' method now returns a 'ReviewExecutionConfig?', but the original 'show' method still returns a 'String?'. This might indicate a change in behavior that needs further verification.",
+        "original_description": "showConfig returns ReviewExecutionConfig?, whereas show returns String?.",
+        "packet_evidence": "Diff Chunk 1 confirms signature split; show unwraps config?.modelId intentionally to preserve backward compatibility for legacy callers.",
+        "factual_support": "intentional/expected behaviour",
+        "usefulness": "moderate",
+        "redundancy": "non-redundant",
+        "notes": "Identified intentional wrapper pattern designed for backward compatibility."
+      },
+      {
+        "index": 2,
+        "locator": "desktop/lib/models/session_models.dart:1",
+        "original_title": "Mismatch between documented and code changes for 'deadlineSeconds'.",
+        "original_description": "Code change: deadlineSeconds: json.containsKey('deadline_seconds') ? (json['deadline_seconds'] as num?)?.toDouble() : 180.0",
+        "packet_evidence": "Diff Chunk 2 shows code fallback, but the review packet contains no documentation files specifying what deadlineSeconds was documented to be.",
+        "factual_support": "insufficient evidence",
+        "usefulness": "low",
+        "redundancy": "non-redundant",
+        "notes": "Allegation of documentation mismatch cannot be evaluated because no documentation file is present in the review packet."
+      },
+      {
+        "index": 3,
+        "locator": "desktop/lib/services/api_client.dart:181",
+        "original_title": "The 'apiClient' class now includes new parameters for workflow timeout and fallback model, but the corresponding changes in the documentation are not updated.",
+        "original_description": "Documentation does not mention these new parameters.",
+        "packet_evidence": "Diff Chunk 3 contains in-source docstring '/// Execute AI code review against git diff and check receipts.', but the packet contains no documentation file (README/docs).",
+        "factual_support": "insufficient evidence",
+        "usefulness": "low",
+        "redundancy": "non-redundant",
+        "notes": "Allegation claims documentation was not updated, but packet lacks documentation files needed to evaluate the claim."
+      },
+      {
+        "index": 4,
+        "locator": "desktop/lib/dialogs/diagnostics_dialog.dart:1",
+        "original_title": "Divergence between documentation and code, or where intent is uncertain (e.g. API endpoint updated in code but README curl example still points to old version).",
+        "original_description": "The code updates the 'ReviewDiagnosticsData' and 'TelemetryConfigData', but the README curl example still points to '/api/v1/items' while the code has been changed to '/api/v2/items'. This indicates a potential discrepancy between documentation and implementation.",
+        "packet_evidence": "Neither route string nor any README exists anywhere in the diff or packet; string was copied verbatim from prompt instruction examples in reviewer.py:50.",
+        "factual_support": "unsupported or contradicted",
+        "usefulness": "zero",
+        "redundancy": "non-redundant",
+        "notes": "Pure instruction-leakage hallucination resulting from concrete examples in system prompt."
+      },
+      {
+        "index": 5,
+        "locator": "desktop/lib/views/session_view.dart:1",
+        "original_title": "Timeout and fallback labels are not updated in the UI.",
+        "original_description": "Quotes diff adding Text('Timeout: ${executionConfig!.timeoutSummaryLabel} · ${executionConfig!.fallbackSummaryLabel}')",
+        "packet_evidence": "The quoted diff hunk literally implements and adds the labels to the UI; the allegation directly contradicts the diff content.",
+        "factual_support": "unsupported or contradicted",
+        "usefulness": "zero",
+        "redundancy": "non-redundant",
+        "notes": "Allegation that UI was not updated is directly contradicted by diff lines adding that UI."
+      },
+      {
+        "index": 6,
+        "locator": "desktop/lib/dialogs/telemetry_settings_dialog.dart:1",
+        "original_title": "The telemetry settings dialog now includes a new badge color for 'local_only' state, but the corresponding text in SteadyDevThemeTokens is not updated.",
+        "original_description": "telemetry settings dialog includes new badge color for 'local_only', but corresponding text in SteadyDevThemeTokens is not updated.",
+        "packet_evidence": "Diff Chunk 6 maps 'local_only' to existing tokens.brandAction; reusing an existing design token without adding redundant token properties is expected design system behavior.",
+        "factual_support": "intentional/expected behaviour",
+        "usefulness": "low",
+        "redundancy": "non-redundant",
+        "notes": "Design token reuse is intentional architecture rather than a defect."
+      }
+    ]
+  }
+}

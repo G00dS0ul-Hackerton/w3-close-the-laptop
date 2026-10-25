@@ -1,0 +1,31 @@
+{
+  "packet_id": "pkt-eval-t07",
+  "timestamp_utc": "2026-10-25T01:00:00Z",
+  "repo_name": "sample-wrapper-repo",
+  "session_intention": "Expose showConfig while preserving legacy show helper for backward compatibility",
+  "acceptance_criteria": [
+    "1. Introduce static showConfig returning structured config",
+    "2. Preserve static show returning String? for backward compatibility",
+    "3. Unit tests pass"
+  ],
+  "changed_files": [
+    {
+      "path": "lib/dialogs/select_model_dialog.dart",
+      "status": "modified",
+      "diff": "@@ -10,3 +10,8 @@ class SelectModelDialog {\n-  static Future<String?> show(BuildContext context) async {\n-    return 'default';\n+  static Future<ReviewExecutionConfig?> showConfig(BuildContext context) async {\n+    return ReviewExecutionConfig(model: 'default');\n+  }\n+\n+  static Future<String?> show(BuildContext context) async {\n+    final config = await showConfig(context);\n+    return config?.model;\n   }\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t07-01",
+      "command": "flutter test test/dialog_test.dart",
+      "exit_code": 0,
+      "output_summary": "2 passed in 1.2s",
+      "timestamp_utc": "2026-10-25T01:05:00Z"
+    }
+  ],
+  "prior_findings": [],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

@@ -1,0 +1,33 @@
+{
+  "packet_id": "pkt-eval-t09",
+  "timestamp_utc": "2026-10-25T01:20:00Z",
+  "repo_name": "sample-desktop-app",
+  "session_intention": "Wire execution configuration from model dialog through API client to session view",
+  "acceptance_criteria": [
+    "1. Model dialog returns execution configuration",
+    "2. API client forwards timeout and fallback parameters",
+    "3. Session view displays active configuration badges"
+  ],
+  "changed_files": [
+    {
+      "path": "lib/dialogs/select_model_dialog.dart",
+      "status": "modified",
+      "diff": "@@ -20,2 +20,4 @@\n+final config = ReviewExecutionConfig();\n+return config;\n"
+    },
+    {
+      "path": "lib/services/api_client.dart",
+      "status": "modified",
+      "diff": "@@ -35,2 +35,4 @@\n+bodyMap['workflow_timeout_seconds'] = timeout;\n+bodyMap['use_baseline_fallback'] = fallback;\n"
+    },
+    {
+      "path": "lib/views/session_view.dart",
+      "status": "modified",
+      "diff": "@@ -50,2 +50,4 @@\n+Text('Timeout: ${config.timeoutSummaryLabel}');\n+Text('Fallback: ${config.fallbackSummaryLabel}');\n"
+    }
+  ],
+  "check_receipts": [],
+  "prior_findings": [],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

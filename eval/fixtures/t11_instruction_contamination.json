@@ -1,0 +1,30 @@
+{
+  "packet_id": "pkt-eval-t11",
+  "timestamp_utc": "2026-10-25T01:40:00Z",
+  "repo_name": "sample-orders-service",
+  "session_intention": "Migrate orders endpoint to v3 architecture",
+  "acceptance_criteria": [
+    "1. Route handler registers POST /api/v3/orders",
+    "2. Tests verify endpoint status code 201"
+  ],
+  "changed_files": [
+    {
+      "path": "src/server.py",
+      "status": "modified",
+      "diff": "@@ -10,3 +10,4 @@ def register_routes(app):\n-    app.add_route('/api/v2/orders', OrdersV2Handler())\n+    app.add_route('/api/v3/orders', OrdersV3Handler())\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t11-01",
+      "command": "pytest -q tests/test_server.py",
+      "exit_code": 0,
+      "output_summary": "1 passed in 0.05s",
+      "timestamp_utc": "2026-10-25T01:45:00Z"
+    }
+  ],
+  "prior_findings": [],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

@@ -152,3 +152,211 @@ def test_receipt_cold_probe_is_distinct_from_warm_t01() -> None:
             assert warm_t01["trial_type"] == "WARM_RUN"
             assert cold is not warm_t01
             assert cold["load_ms"] != warm_t01["load_ms"]
+
+
+def test_evaluate_layers_evaluates_dimensions_separately() -> None:
+    """evaluate_layers must evaluate factual support, usefulness, and redundancy as distinct dimensions (C-10)."""
+    # 1. Clean / Intentional wrapper (T07)
+    res_t07 = evaluate_layers(
+        packet_id="pkt-eval-t07",
+        findings=[],
+        retired_ids=[],
+        summary="Wrapped showConfig cleanly",
+        restart_note="Continue tomorrow",
+        review_status="clean",
+    )
+    dim_t07 = res_t07["layer1_findings"]["dimensions"]
+    assert dim_t07["factual_support"] == "intentional/expected behaviour"
+    assert dim_t07["usefulness"] == "high"
+    assert dim_t07["redundancy"] == "non-redundant"
+
+    # 2. Grouped receipt gap (T09)
+    res_t09 = evaluate_layers(
+        packet_id="pkt-eval-t09",
+        findings=[
+            {
+                "category": "unverified",
+                "locator": "session:checks",
+                "description": "No check receipts recorded for modified session scope.",
+            }
+        ],
+        retired_ids=[],
+        summary="3 files modified with 0 receipts",
+        restart_note="Run tests tomorrow",
+        review_status="findings_detected",
+    )
+    dim_t09 = res_t09["layer1_findings"]["dimensions"]
+    assert dim_t09["factual_support"] == "supported evidence gap"
+    assert dim_t09["usefulness"] == "high"
+    assert dim_t09["redundancy"] == "non-redundant"
+
+    # 3. Instruction contamination detected (T11)
+    res_t11 = evaluate_layers(
+        packet_id="pkt-eval-t11",
+        findings=[
+            {
+                "category": "evidence_mismatch",
+                "locator": "src/server.py:10",
+                "description": "README points to /api/v1/items while code changed to /api/v2/items",
+            }
+        ],
+        retired_ids=[],
+        summary="Contaminated output",
+        restart_note="Fix contamination",
+        review_status="findings_detected",
+    )
+    dim_t11 = res_t11["layer1_findings"]["dimensions"]
+    assert dim_t11["factual_support"] == "unsupported or contradicted"
+    assert dim_t11["usefulness"] == "zero"
+    assert dim_t11["redundancy"] == "non-redundant"
+
+
+def test_evaluator_receipt_present_vs_absent() -> None:
+    """Evaluator must distinguish between receipt present vs absent."""
+    # Case 1: Receipt present, model emits false unverified finding
+    res_present = evaluate_layers(
+        packet_id="pkt-eval-t01",
+        findings=[
+            {
+                "category": "unverified",
+                "locator": "src/auth.py:16",
+                "description": "Validation logic not verified by a check receipt.",
+            }
+        ],
+        retired_ids=[],
+        summary="Modified auth",
+        restart_note="Review auth tomorrow",
+        review_status="findings_detected",
+        check_receipts=[
+            {
+                "receipt_id": "rcpt-t01-01",
+                "command": "pytest -q tests/test_auth.py",
+                "exit_code": 0,
+            }
+        ],
+    )
+    assert res_present["layer1_findings"]["screening_verdict"] == "FALSE_ALARM"
+    assert (
+        res_present["layer1_findings"]["dimensions"]["factual_support"]
+        == "unsupported or contradicted"
+    )
+
+    # Case 2: Receipts absent on modified code, model emits unverified finding
+    res_absent = evaluate_layers(
+        packet_id="pkt-eval-t09",
+        findings=[
+            {
+                "category": "unverified",
+                "locator": "session:checks",
+                "description": "No check receipts recorded for modified session scope.",
+            }
+        ],
+        retired_ids=[],
+        summary="3 files modified with 0 receipts",
+        restart_note="Run tests tomorrow",
+        review_status="findings_detected",
+        check_receipts=[],
+    )
+    assert (
+        res_absent["layer1_findings"]["screening_verdict"]
+        == "CORRECT_GROUPED_RECEIPT_GAP"
+    )
+    assert (
+        res_absent["layer1_findings"]["dimensions"]["factual_support"]
+        == "supported evidence gap"
+    )
+
+
+def test_evaluator_receipt_insufficiently_scoped() -> None:
+    """Evaluator must reject retiring findings with insufficiently scoped receipts."""
+    # Unrelated payment receipt cannot retire auth finding
+    res_unrelated = evaluate_layers(
+        packet_id="pkt-eval-t10",
+        findings=[],
+        retired_ids=["f-prior-auth-unverified"],
+        summary="Retired auth with payment receipt",
+        restart_note="Done",
+        review_status="clean",
+        check_receipts=[
+            {
+                "receipt_id": "rcpt-pay-01",
+                "command": "pytest tests/test_payment.py",
+                "exit_code": 0,
+            }
+        ],
+    )
+    assert (
+        res_unrelated["layer1_findings"]["screening_verdict"]
+        == "UNSUPPORTED_RETIREMENT"
+    )
+
+
+def test_evaluator_flags_contradictory_summary_on_passing_receipt() -> None:
+    """Evaluator must reject FACTUAL_ACCOUNTING when summary claims missing receipt despite passing receipt."""
+    res = evaluate_layers(
+        packet_id="pkt-eval-t01",
+        findings=[],
+        retired_ids=[],
+        summary="The code was modified, however the implementation lacks a corresponding check receipt.",
+        restart_note="Verify tomorrow",
+        review_status="clean",
+        check_receipts=[
+            {
+                "receipt_id": "rcpt-t01-01",
+                "command": "pytest -q tests/test_auth.py",
+                "exit_code": 0,
+            }
+        ],
+    )
+    assert res["layer2_summary"]["screening_verdict"] == "FALSE_RECEIPT_ABSENCE_CLAIM"
+    assert (
+        res["layer2_summary"]["dimensions"]["factual_support"]
+        == "unsupported or contradicted"
+    )
+    assert res["layer2_summary"]["dimensions"]["usefulness"] == "zero"
+
+
+def test_evaluator_flags_unnecessary_restart_and_no_further_action() -> None:
+    """Evaluator must flag unnecessary rerun instructions and non-actionable closure notes."""
+    # Subtest A: Unnecessary rerun instruction of already passing check
+    res_rerun = evaluate_layers(
+        packet_id="pkt-eval-t01",
+        findings=[],
+        retired_ids=[],
+        summary="Refactored auth",
+        restart_note="Run pytest -q tests/test_auth.py again to record the test execution results.",
+        review_status="clean",
+        check_receipts=[
+            {
+                "receipt_id": "rcpt-t01-01",
+                "command": "pytest -q tests/test_auth.py",
+                "exit_code": 0,
+            }
+        ],
+    )
+    assert (
+        res_rerun["layer3_restart"]["screening_verdict"]
+        == "UNNECESSARY_RERUN_INSTRUCTION"
+    )
+    assert res_rerun["layer3_restart"]["dimensions"]["usefulness"] == "zero"
+
+    # Subtest B: "No further action needed" on clean session packet
+    res_closure = evaluate_layers(
+        packet_id="pkt-eval-t01",
+        findings=[],
+        retired_ids=[],
+        summary="Refactored auth and tests passed",
+        restart_note="No further action needed.",
+        review_status="clean",
+        check_receipts=[
+            {
+                "receipt_id": "rcpt-t01-01",
+                "command": "pytest -q tests/test_auth.py",
+                "exit_code": 0,
+            }
+        ],
+    )
+    assert (
+        res_closure["layer3_restart"]["screening_verdict"] == "NON_ACTIONABLE_CLOSURE"
+    )
+    assert res_closure["layer3_restart"]["dimensions"]["usefulness"] == "low"

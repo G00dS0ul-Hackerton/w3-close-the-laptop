@@ -799,3 +799,135 @@ def test_invoke_single_model_resilient_to_missing_restart_note() -> None:
     assert parsed.get("restart_note") == ""
     assert len(parsed.get("findings", [])) == 1
     assert parsed["findings"][0]["locator"] == "src/app.py:10"
+
+
+def test_system_prompt_contains_no_concrete_examples() -> None:
+    """SYSTEM_PROMPT must not contain concrete repo examples (P-14) causing instruction leakage."""
+    from steadydev.reviewer import SYSTEM_PROMPT
+
+    forbidden_examples = [
+        "/api/v1/items",
+        "/api/v2/items",
+        "/home",
+        "/dashboard",
+        "LayoutBuilder",
+        "Row to LayoutBuilder",
+        "README curl example",
+    ]
+    for ex in forbidden_examples:
+        assert ex not in SYSTEM_PROMPT, (
+            f"Concrete illustrative example '{ex}' leaked in SYSTEM_PROMPT"
+        )
+
+
+def test_documentation_mismatch_requires_both_doc_and_code() -> None:
+    """A documentation mismatch finding requires both code AND documentation files in packet."""
+    reviewer = Reviewer()
+    # Packet with code change only (no README or docs)
+    packet = ReviewPacket(
+        packet_id="pkt-no-docs",
+        timestamp_utc="2026-10-25T01:00:00Z",
+        repo_name="sample-repo",
+        session_intention="Add timeout parameter",
+        acceptance_criteria=["Add timeout"],
+        changed_files=[
+            ChangedFile(
+                path="src/api.py", diff="@@ -1 +1,2 @@\n def call():\n+    pass\n"
+            )
+        ],
+        check_receipts=[],
+    )
+    raw_dict = {
+        "status": "findings_detected",
+        "findings": [
+            {
+                "category": "needs_judgment",
+                "locator": "src/api.py:1",
+                "description": "Mismatch between documentation and code for timeout parameter",
+                "evidence": "Code added timeout but documentation was not updated",
+            }
+        ],
+        "closing_summary": "Summary",
+        "restart_note": "Restart",
+    }
+    result = reviewer._process_model_json(
+        parsed=raw_dict,
+        packet=packet,
+        model_name="gemma3:4b",
+        raw_text="",
+        timings={},
+    )
+    assert len(result.findings) >= 1
+    f = result.findings[0]
+    assert f.validation_error is not None
+    assert "documentation" in f.validation_error.lower()
+    assert (
+        "insufficient evidence" in f.validation_error.lower()
+        or "unsupported" in f.validation_error.lower()
+    )
+
+
+def test_missing_receipts_grouped_deterministically_in_reviewer() -> None:
+    """Multiple unverified missing-receipt findings across files must be grouped into one notice."""
+    reviewer = Reviewer()
+    packet = ReviewPacket(
+        packet_id="pkt-multi-unverified",
+        timestamp_utc="2026-10-25T01:00:00Z",
+        repo_name="sample-repo",
+        session_intention="Refactor UI and API",
+        acceptance_criteria=["Update UI", "Update API"],
+        changed_files=[
+            ChangedFile(path="lib/ui.dart", diff="+ui_code\n"),
+            ChangedFile(path="lib/api.dart", diff="+api_code\n"),
+            ChangedFile(path="lib/models.dart", diff="+model_code\n"),
+        ],
+        check_receipts=[],
+    )
+    # Model emits 3 separate missing-receipt findings
+    raw_dict = {
+        "status": "findings_detected",
+        "findings": [
+            {
+                "category": "unverified",
+                "locator": "lib/ui.dart:1",
+                "description": "No check recorded for UI changes",
+                "evidence": "No receipt",
+            },
+            {
+                "category": "unverified",
+                "locator": "lib/api.dart:1",
+                "description": "No check recorded for API changes",
+                "evidence": "No receipt",
+            },
+            {
+                "category": "unverified",
+                "locator": "lib/models.dart:1",
+                "description": "No check recorded for models",
+                "evidence": "No receipt",
+            },
+        ],
+        "closing_summary": "Summary",
+        "restart_note": "Restart",
+    }
+    result = reviewer._process_model_json(
+        parsed=raw_dict,
+        packet=packet,
+        model_name="gemma3:4b",
+        raw_text="",
+        timings={},
+    )
+    # Must be consolidated into exactly 1 grouped unverified finding
+    unverified_receipt_findings = [
+        f
+        for f in result.findings
+        if f.category == FindingCategory.UNVERIFIED
+        and "receipt" in f.description.lower()
+    ]
+    assert len(unverified_receipt_findings) == 1
+    grouped = unverified_receipt_findings[0]
+    assert "tests were never run" not in grouped.description.lower()
+    assert "failed to test" not in grouped.description.lower()
+    # Evidence must contain the affected file paths
+    assert "lib/ui.dart" in grouped.evidence
+    assert "lib/api.dart" in grouped.evidence
+    assert "lib/models.dart" in grouped.evidence

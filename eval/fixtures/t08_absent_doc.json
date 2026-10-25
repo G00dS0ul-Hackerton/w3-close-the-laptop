@@ -1,0 +1,30 @@
+{
+  "packet_id": "pkt-eval-t08",
+  "timestamp_utc": "2026-10-25T01:10:00Z",
+  "repo_name": "sample-api-client",
+  "session_intention": "Add timeout parameter to API client requestReview method",
+  "acceptance_criteria": [
+    "1. API client accepts optional timeout parameter",
+    "2. Client unit tests pass"
+  ],
+  "changed_files": [
+    {
+      "path": "src/api_client.py",
+      "status": "modified",
+      "diff": "@@ -15,4 +15,6 @@ class ApiClient:\n-    def request_review(self, diff: str) -> dict:\n+    def request_review(self, diff: str, timeout: float | None = None) -> dict:\n         payload = {'diff': diff}\n+        if timeout is not None:\n+            payload['timeout'] = timeout\n         return self._post('/api/review', payload)\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t08-01",
+      "command": "pytest -q tests/test_api_client.py",
+      "exit_code": 0,
+      "output_summary": "3 passed in 0.08s",
+      "timestamp_utc": "2026-10-25T01:12:00Z"
+    }
+  ],
+  "prior_findings": [],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

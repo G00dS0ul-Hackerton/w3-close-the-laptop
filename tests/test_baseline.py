@@ -297,3 +297,83 @@ def test_baseline_generates_intention_aware_restart_note_when_clean() -> None:
         or "tokens" in result.restart_note.lower()
     )
     assert "lib/theme.dart" in result.restart_note
+
+
+def test_baseline_groups_missing_receipts_deterministically() -> None:
+    """Baseline must group multiple missing check receipts into a single calm notice with scope details."""
+    packet = ReviewPacket(
+        packet_id="pkt-group-receipts",
+        timestamp_utc="2026-10-25T01:00:00Z",
+        repo_name="sample-project",
+        session_intention="Add payment and checkout routes",
+        acceptance_criteria=["Payment endpoint works", "Checkout UI updated"],
+        changed_files=[
+            ChangedFile(
+                path="src/payment.py", diff="@@ -1,2 +1,2 @@\n+def pay(): pass\n"
+            ),
+            ChangedFile(
+                path="src/checkout.py",
+                diff="@@ -1,2 +1,2 @@\n+def checkout(): pass\n",
+            ),
+            ChangedFile(
+                path="lib/views/checkout_view.dart",
+                diff="@@ -1,2 +1,2 @@\n+class CheckoutView extends StatelessWidget {}\n",
+            ),
+        ],
+        check_receipts=[],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    assert result.status == "findings_detected"
+
+    unverified_receipt_findings = [
+        f
+        for f in result.findings
+        if f.category == FindingCategory.UNVERIFIED
+        and "receipt" in f.description.lower()
+    ]
+    # Exactly one consolidated notice for missing receipts
+    assert len(unverified_receipt_findings) == 1
+    grouped = unverified_receipt_findings[0]
+    assert "tests were never run" not in grouped.description.lower()
+    assert "failed to test" not in grouped.description.lower()
+    assert "src/payment.py" in grouped.evidence
+    assert "src/checkout.py" in grouped.evidence
+    assert "lib/views/checkout_view.dart" in grouped.evidence
+
+
+def test_baseline_non_layout_reconciliation_rejects_unrelated_receipt() -> None:
+    """An unrelated passing receipt (e.g. test_payment.py) must NOT retire an unverified finding on auth.py."""
+    prior = Finding(
+        finding_id="f-auth-unverified",
+        category=FindingCategory.UNVERIFIED,
+        locator="src/auth.py:25",
+        description="No check recorded for modified code.",
+        status=FindingStatus.OPEN,
+    )
+    packet = ReviewPacket(
+        packet_id="pkt-unrelated-scope",
+        timestamp_utc="2026-10-25T01:00:00Z",
+        repo_name="sample-project",
+        session_intention="Refactor payment logic",
+        acceptance_criteria=["Payment tests pass"],
+        changed_files=[
+            ChangedFile(
+                path="src/payment.py", diff="@@ -1,2 +1,2 @@\n+def pay(): pass\n"
+            )
+        ],
+        check_receipts=[
+            CheckReceipt(
+                receipt_id="rcpt-payment",
+                command="pytest tests/test_payment.py",
+                exit_code=0,
+                output_summary="1 passed in 0.05s",
+                timestamp_utc="2026-10-25T01:00:00Z",
+            )
+        ],
+        prior_findings=[prior],
+    )
+    baseline = ChecklistBaseline()
+    result = baseline.evaluate(packet)
+    # The payment test receipt must NOT retire the auth finding!
+    assert "f-auth-unverified" not in result.retired_finding_ids

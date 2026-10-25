@@ -1,0 +1,39 @@
+{
+  "packet_id": "pkt-eval-t10",
+  "timestamp_utc": "2026-10-25T01:30:00Z",
+  "repo_name": "sample-auth-payment",
+  "session_intention": "Refactor payment processing helper",
+  "acceptance_criteria": [
+    "1. Payment helper executes successfully",
+    "2. Unit tests pass"
+  ],
+  "changed_files": [
+    {
+      "path": "src/payment.py",
+      "status": "modified",
+      "diff": "@@ -5,2 +5,4 @@ def process_payment(amount: float) -> bool:\n+    if amount <= 0:\n+        return False\n     return True\n"
+    }
+  ],
+  "check_receipts": [
+    {
+      "receipt_id": "rcpt-t10-payment",
+      "command": "pytest -q tests/test_payment.py",
+      "exit_code": 0,
+      "output_summary": "2 passed in 0.04s",
+      "timestamp_utc": "2026-10-25T01:32:00Z"
+    }
+  ],
+  "prior_findings": [
+    {
+      "finding_id": "f-prior-auth-unverified",
+      "category": "unverified",
+      "locator": "src/auth.py:20",
+      "description": "No check receipts recorded for modified session scope.",
+      "evidence": "Source code modified without attached check receipts: src/auth.py",
+      "status": "open"
+    }
+  ],
+  "explicit_deferrals": [],
+  "truncated": false,
+  "omitted_files": []
+}

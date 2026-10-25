@@ -4,6 +4,7 @@ Evaluates session context using structural heuristics and receipt presence rules
 Deterministic rules; no LLM inference. Rules can still produce false positives and false negatives.
 """
 
+import os
 import re
 import time
 
@@ -120,7 +121,38 @@ class ChecklistBaseline:
                         term in passing_commands for term in LAYOUT_TERMS
                     )
                 else:
-                    has_relevant_pass = bool(passing_receipts)
+                    # Non-layout finding requires a receipt matching the target scope
+                    loc_file = pf.locator.split(":")[0].strip().replace("\\", "/")
+                    stem = os.path.splitext(os.path.basename(loc_file))[0].lower()
+                    has_relevant_pass = False
+                    for r in passing_receipts:
+                        cmd_l = r.command.lower()
+                        out_l = r.output_summary.lower()
+                        if len(stem) >= 3 and (
+                            stem in cmd_l or stem in out_l or loc_file.lower() in cmd_l
+                        ):
+                            has_relevant_pass = True
+                            break
+                        # Bare test runner without specific file arguments
+                        is_bare_suite = cmd_l.strip() in {
+                            "pytest",
+                            "pytest -q",
+                            "flutter test",
+                            "npm test",
+                            "uv run pytest",
+                        }
+                        if is_bare_suite:
+                            ext = os.path.splitext(loc_file)[1].lower()
+                            is_incompatible = (
+                                ext == ".py"
+                                and any(x in cmd_l for x in ["flutter", "npm"])
+                            ) or (
+                                ext == ".dart"
+                                and any(x in cmd_l for x in ["pytest", "npm"])
+                            )
+                            if not is_incompatible:
+                                has_relevant_pass = True
+                                break
 
                 if has_relevant_pass:
                     retired_finding_ids.append(pf.finding_id)
@@ -131,35 +163,49 @@ class ChecklistBaseline:
         ]
         has_layout_changes = bool(layout_files)
         has_viewport_receipt = any(term in passing_commands for term in LAYOUT_TERMS)
-
+        layout_needs_receipt = False
         if has_layout_changes and not has_viewport_receipt:
-            # Check if layout specifically deferred
             is_deferred = any(
                 "layout" in d.lower() or "viewport" in d.lower()
                 for d in packet.explicit_deferrals
             )
             if not is_deferred:
-                layout_file = layout_files[0].path if layout_files else "layout"
-                loc = f"{layout_file}:1"
-                desc = "No check recorded for modified layout."
-                findings.append(
-                    Finding(
-                        finding_id=compute_finding_id(
-                            FindingCategory.UNVERIFIED, loc, desc
-                        ),
-                        category=FindingCategory.UNVERIFIED,
-                        locator=loc,
-                        description=desc,
-                        evidence="Layout files modified without an attached passing viewport, widget, or screenshot test receipt.",
-                        status=FindingStatus.OPEN,
-                    )
-                )
+                layout_needs_receipt = True
 
         # 3. Check code modifications for test receipts
         has_code_changes = bool(changed_extensions.intersection(CODE_EXTENSIONS))
-        if has_code_changes and not passing_receipts:
-            loc = changed_paths[0] if changed_paths else "repo:1"
-            desc = "No passing check recorded for modified code."
+        code_needs_receipt = has_code_changes and not passing_receipts
+
+        # Consolidate missing check receipts into a single deterministic finding
+        if layout_needs_receipt or code_needs_receipt:
+            unverified_paths = set()
+            if code_needs_receipt:
+                for f in packet.changed_files:
+                    ext = f.path[f.path.rfind(".") :].lower() if "." in f.path else ""
+                    if ext in CODE_EXTENSIONS:
+                        unverified_paths.add(f.path)
+            if layout_needs_receipt:
+                for lf in layout_files:
+                    unverified_paths.add(lf.path)
+
+            unverified_sorted = sorted(unverified_paths)
+            if len(unverified_sorted) > 1:
+                loc = "session:checks"
+                desc = "No check receipts recorded for modified session scope."
+                ev = f"Modified files lacking attached check receipts: {', '.join(unverified_sorted)}"
+            else:
+                loc = (
+                    f"{unverified_sorted[0]}:1"
+                    if unverified_sorted
+                    else "session:checks"
+                )
+                if layout_needs_receipt and not code_needs_receipt:
+                    desc = "No check recorded for modified layout."
+                    ev = f"Layout files modified without an attached passing viewport, widget, or screenshot test receipt: {unverified_sorted[0] if unverified_sorted else 'layout'}"
+                else:
+                    desc = "No check receipts recorded for modified session scope."
+                    ev = f"Source code modified without attached check receipts: {unverified_sorted[0] if unverified_sorted else 'modified files'}"
+
             findings.append(
                 Finding(
                     finding_id=compute_finding_id(
@@ -168,7 +214,7 @@ class ChecklistBaseline:
                     category=FindingCategory.UNVERIFIED,
                     locator=loc,
                     description=desc,
-                    evidence="Source code modified with zero attached passing check receipts.",
+                    evidence=ev,
                     status=FindingStatus.OPEN,
                 )
             )

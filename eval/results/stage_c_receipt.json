@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-23T13:45:03.816010+00:00",
+  "timestamp": "2026-10-25T01:17:31.418533+00:00",
   "baseline": {
     "pkt-eval-t02": {
       "name": "Case 1 (Mismatch)",
@@ -8,13 +8,18 @@
       "findings": [],
       "closing_summary": "Baseline Checklist Review: 1 files modified, 1 checks recorded, 0 unverified gaps.",
       "restart_note": "Tomorrow: Continue 'Update post-login flow to redirect authenticated users to /dashboard' by verifying modified files (src/views.py) against remaining acceptance criteria. (No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.)",
-      "elapsed_ms": 0.2849000011337921,
+      "elapsed_ms": 0.21080000078654848,
       "eval_3layer": {
         "screening_mode": "AUTOMATED_SCREENING",
         "semantic_review_status": "NOT_REVIEWED",
         "layer1_findings": {
           "screening_verdict": "MISSED_GAP",
-          "detail": "Missed semantic route redirect contradiction."
+          "detail": "Missed semantic route redirect contradiction.",
+          "dimensions": {
+            "factual_support": "insufficient evidence",
+            "usefulness": "low",
+            "redundancy": "non-redundant"
+          }
         },
         "layer2_summary": {
           "screening_verdict": "FACTUAL_ACCOUNTING",
@@ -37,13 +42,18 @@
       "findings": [],
       "closing_summary": "Baseline Checklist Review: 2 files modified, 1 checks recorded, 0 unverified gaps.",
       "restart_note": "Tomorrow: Continue 'Refactor user authentication token expiration helper' by verifying modified files (src/auth.py, tests/test_auth.py) against remaining acceptance criteria. (No gaps detected by the baseline's limited rules; this does not establish that all requirements were verified.)",
-      "elapsed_ms": 0.052100003813393414,
+      "elapsed_ms": 0.04959999932907522,
       "eval_3layer": {
         "screening_mode": "AUTOMATED_SCREENING",
         "semantic_review_status": "NOT_REVIEWED",
         "layer1_findings": {
           "screening_verdict": "CORRECT_CLEAN",
-          "detail": "Zero false alarms emitted on clean session."
+          "detail": "Zero false alarms emitted on clean session.",
+          "dimensions": {
+            "factual_support": "intentional/expected behaviour",
+            "usefulness": "high",
+            "redundancy": "non-redundant"
+          }
         },
         "layer2_summary": {
           "screening_verdict": "FACTUAL_ACCOUNTING",
@@ -60,92 +70,204 @@
       }
     }
   },
-  "model_qwen": {
-    "pkt-eval-t02": {
-      "name": "Case 1 (Mismatch)",
-      "status": "clean",
-      "findings_count": 0,
-      "findings": [],
-      "closing_summary": "The post-login flow has been updated to redirect authenticated users to /dashboard. Route redirect tests have passed.",
-      "restart_note": "",
-      "wall_s": 67.1653801999928,
-      "timing_ms": {
-        "total_duration_ms": 67155.883,
-        "load_duration_ms": 13485.4399,
-        "prompt_eval_duration_ms": 41724.25,
-        "eval_duration_ms": 11894.13
-      },
-      "eval_3layer": {
-        "screening_mode": "AUTOMATED_SCREENING",
-        "semantic_review_status": "NOT_REVIEWED",
-        "layer1_findings": {
-          "screening_verdict": "MISSED_GAP",
-          "detail": "Missed semantic route redirect contradiction."
+  "models": {
+    "qwen2.5-coder:3b": {
+      "pkt-eval-t02": {
+        "name": "Case 1 (Mismatch)",
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "closing_summary": "The post-login flow has been updated to redirect authenticated users to /home, and the route redirect tests have passed.",
+        "restart_note": "No further action needed.",
+        "wall_s": 73.06244470000092,
+        "timing_ms": {
+          "total_duration_ms": 73054.709,
+          "load_duration_ms": 15318.0749,
+          "prompt_eval_duration_ms": 45157.752,
+          "eval_duration_ms": 12512.807
         },
-        "layer2_summary": {
-          "screening_verdict": "FACTUAL_ACCOUNTING",
-          "notes": [
-            "Truthful diff and check accounting"
-          ]
+        "eval_3layer": {
+          "screening_mode": "AUTOMATED_SCREENING",
+          "semantic_review_status": "NOT_REVIEWED",
+          "layer1_findings": {
+            "screening_verdict": "MISSED_GAP",
+            "detail": "Missed semantic route redirect contradiction.",
+            "dimensions": {
+              "factual_support": "insufficient evidence",
+              "usefulness": "low",
+              "redundancy": "non-redundant"
+            }
+          },
+          "layer2_summary": {
+            "screening_verdict": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "screening_verdict": "DISMISSIVE_NOTE",
+            "notes": [
+              "Dismissed next steps with 'no further action needed' when follow-up was required."
+            ]
+          }
         },
-        "layer3_restart": {
-          "screening_verdict": "EMPTY_RESTART_NOTE",
-          "notes": [
-            "Empty restart note emitted by model."
-          ]
-        }
+        "error": null
       },
-      "error": null
+      "pkt-eval-t01": {
+        "name": "Case 2 (Clean Negative)",
+        "status": "clean",
+        "findings_count": 0,
+        "findings": [],
+        "closing_summary": "The refactored `validate_token` function now checks if the token's expiry timestamp is greater than the current UTC time, and unit tests have passed.",
+        "restart_note": "No further action needed.",
+        "wall_s": 66.27597199999946,
+        "timing_ms": {
+          "total_duration_ms": 66274.0632,
+          "load_duration_ms": 4395.3031,
+          "prompt_eval_duration_ms": 46087.157,
+          "eval_duration_ms": 15756.896
+        },
+        "eval_3layer": {
+          "screening_mode": "AUTOMATED_SCREENING",
+          "semantic_review_status": "NOT_REVIEWED",
+          "layer1_findings": {
+            "screening_verdict": "CORRECT_CLEAN",
+            "detail": "Zero false alarms emitted on clean session.",
+            "dimensions": {
+              "factual_support": "intentional/expected behaviour",
+              "usefulness": "high",
+              "redundancy": "non-redundant"
+            }
+          },
+          "layer2_summary": {
+            "screening_verdict": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "screening_verdict": "ACTIONABLE_CONTINUITY",
+            "notes": [
+              "Actionable next steps provided"
+            ]
+          }
+        },
+        "error": null
+      }
     },
-    "pkt-eval-t01": {
-      "name": "Case 2 (Clean Negative)",
-      "status": "findings_detected",
-      "findings_count": 1,
-      "findings": [
-        {
-          "finding_id": "m-retire-err-1",
-          "category": "needs_judgment",
-          "locator": "prior_findings",
-          "description": "Unsupported retirement ID 'rcpt-t01-01' does not match any prior finding.",
-          "evidence": "Proposed retirement ID: 'rcpt-t01-01'",
-          "status": "open",
-          "validation_error": "Unknown prior finding ID 'rcpt-t01-01'",
-          "is_stale": false,
-          "stale_reason": null,
-          "user_reason": null,
-          "retired_by_receipt_id": null
-        }
-      ],
-      "closing_summary": "The user authentication token expiration helper was refactored to validate the token's expiry timestamp against current UTC time, and unit test coverage passed with exit code 0.",
-      "restart_note": "No further action needed.",
-      "wall_s": 69.35516069999721,
-      "timing_ms": {
-        "total_duration_ms": 69353.1954,
-        "load_duration_ms": 6439.8844,
-        "prompt_eval_duration_ms": 45841.953,
-        "eval_duration_ms": 17027.607
-      },
-      "eval_3layer": {
-        "screening_mode": "AUTOMATED_SCREENING",
-        "semantic_review_status": "NOT_REVIEWED",
-        "layer1_findings": {
-          "screening_verdict": "FALSE_ALARM",
-          "detail": "Emitted 1 ungrounded findings on clean code."
+    "gemma3:4b": {
+      "pkt-eval-t02": {
+        "name": "Case 1 (Mismatch)",
+        "status": "findings_detected",
+        "findings_count": 1,
+        "findings": [
+          {
+            "finding_id": "fnd-c4f9c68f34",
+            "category": "evidence_mismatch",
+            "locator": "src/views.py:40",
+            "description": "The redirect URL has been changed from '/welcome' to '/home'. This contradicts the session intention of redirecting to /dashboard.",
+            "evidence": "Original code: `return redirect('/welcome')`\nModified code: `return redirect('/home')`",
+            "status": "open",
+            "engine": "gemma3:4b",
+            "validation_error": null,
+            "is_stale": false,
+            "stale_reason": null,
+            "user_reason": null,
+            "retired_by_receipt_id": null
+          }
+        ],
+        "closing_summary": "The code was modified to change the redirect URL from /welcome to /home. The test receipt confirms that this change passed, but the intended destination of /dashboard was not achieved.",
+        "restart_note": "Investigate why the redirect is currently set to /home and update the `views.py` file to correctly redirect authenticated users to `/dashboard`.",
+        "wall_s": 137.63396670000293,
+        "timing_ms": {
+          "total_duration_ms": 137629.3978,
+          "load_duration_ms": 24587.162,
+          "prompt_eval_duration_ms": 59895.877,
+          "eval_duration_ms": 52971.909
         },
-        "layer2_summary": {
-          "screening_verdict": "FACTUAL_ACCOUNTING",
-          "notes": [
-            "Truthful diff and check accounting"
-          ]
+        "eval_3layer": {
+          "screening_mode": "AUTOMATED_SCREENING",
+          "semantic_review_status": "NOT_REVIEWED",
+          "layer1_findings": {
+            "screening_verdict": "CORRECT_DETECTION",
+            "detail": "Successfully caught route mismatch to /home vs /dashboard.",
+            "dimensions": {
+              "factual_support": "supported semantic issue",
+              "usefulness": "high",
+              "redundancy": "non-redundant"
+            }
+          },
+          "layer2_summary": {
+            "screening_verdict": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "screening_verdict": "HIGH_CONTINUITY",
+            "notes": [
+              "Identified concrete, specific next steps for tomorrow."
+            ]
+          }
         },
-        "layer3_restart": {
-          "screening_verdict": "ACTIONABLE_CONTINUITY",
-          "notes": [
-            "Actionable next steps provided"
-          ]
-        }
+        "error": null
       },
-      "error": null
+      "pkt-eval-t01": {
+        "name": "Case 2 (Clean Negative)",
+        "status": "findings_detected",
+        "findings_count": 1,
+        "findings": [
+          {
+            "finding_id": "fnd-e0b544e3c3",
+            "category": "unverified",
+            "locator": "src/auth.py:16",
+            "description": "The logic for validating token expiration against current UTC time is not explicitly verified by a check receipt.",
+            "evidence": "Code change introduces `expiry = get_token_expiry(token)` and `return expiry > datetime.now(timezone.utc)`, but no test receipts are recorded.",
+            "status": "open",
+            "engine": "gemma3:4b",
+            "validation_error": null,
+            "is_stale": false,
+            "stale_reason": null,
+            "user_reason": null,
+            "retired_by_receipt_id": null
+          }
+        ],
+        "closing_summary": "The code was modified to include logic for validating token expiration against current UTC time, however the implementation lacks a corresponding check receipt.",
+        "restart_note": "Run pytest -q tests/test_auth.py again to record the test execution results and verify the expiry validation logic.",
+        "wall_s": 125.94598489999771,
+        "timing_ms": {
+          "total_duration_ms": 125942.7715,
+          "load_duration_ms": 20870.0133,
+          "prompt_eval_duration_ms": 53396.341,
+          "eval_duration_ms": 51562.73
+        },
+        "eval_3layer": {
+          "screening_mode": "AUTOMATED_SCREENING",
+          "semantic_review_status": "NOT_REVIEWED",
+          "layer1_findings": {
+            "screening_verdict": "FALSE_ALARM",
+            "detail": "Emitted 1 ungrounded findings on clean code.",
+            "dimensions": {
+              "factual_support": "unsupported or contradicted",
+              "usefulness": "zero",
+              "redundancy": "non-redundant"
+            }
+          },
+          "layer2_summary": {
+            "screening_verdict": "FACTUAL_ACCOUNTING",
+            "notes": [
+              "Truthful diff and check accounting"
+            ]
+          },
+          "layer3_restart": {
+            "screening_verdict": "ACTIONABLE_CONTINUITY",
+            "notes": [
+              "Actionable next steps provided"
+            ]
+          }
+        },
+        "error": null
+      }
     }
   }
 }

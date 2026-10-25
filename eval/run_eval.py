@@ -180,6 +180,11 @@ CANONICAL_FIXTURE_PATHS = [
     "eval/fixtures/t06a_supported_retirement.json",
     "eval/fixtures/t06b_insufficient_evidence.json",
     "eval/fixtures/t06_reconciled.json",
+    "eval/fixtures/t07_intentional_wrapper.json",
+    "eval/fixtures/t08_absent_doc.json",
+    "eval/fixtures/t09_grouped_receipt_gaps.json",
+    "eval/fixtures/t10_receipt_reconciliation.json",
+    "eval/fixtures/t11_instruction_contamination.json",
 ]
 
 
@@ -235,6 +240,7 @@ def evaluate_layers(
     restart_note: str,
     review_status: str = "clean",
     error: str | None = None,
+    check_receipts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Automated heuristic screening across 3 output layers.
 
@@ -249,14 +255,29 @@ def evaluate_layers(
             "layer1_findings": {
                 "screening_verdict": "FAILED_REVIEW",
                 "detail": f"Review failed with status '{review_status}': {error or 'No error details'}",
+                "dimensions": {
+                    "factual_support": "insufficient evidence",
+                    "usefulness": "zero",
+                    "redundancy": "non-redundant",
+                },
             },
             "layer2_summary": {
                 "screening_verdict": "FAILED_REVIEW",
                 "notes": [f"Review failed with status '{review_status}'"],
+                "dimensions": {
+                    "factual_support": "insufficient evidence",
+                    "usefulness": "zero",
+                    "redundancy": "non-redundant",
+                },
             },
             "layer3_restart": {
                 "screening_verdict": "FAILED_REVIEW",
                 "notes": [f"Review failed with status '{review_status}'"],
+                "dimensions": {
+                    "factual_support": "insufficient evidence",
+                    "usefulness": "zero",
+                    "continuity": "none",
+                },
             },
         }
 
@@ -362,6 +383,161 @@ def evaluate_layers(
             l1_status = "CORRECT_NON_RETIREMENT"
             l1_detail = "Correctly refused to retire f-prior-nav-01 due to insufficient evidence."
 
+    elif packet_id == "pkt-eval-t07":
+        defect_findings = [
+            f
+            for f in findings
+            if f.get("category") in {"evidence_mismatch", "unverified"}
+        ]
+        if not defect_findings:
+            l1_status = "CORRECT_INTENTIONAL_WRAPPER"
+            l1_detail = "Zero false alarms on intentional backward-compatible wrapper."
+        else:
+            l1_status = "FALSE_ALARM_ON_WRAPPER"
+            l1_detail = "Flagged intentional backward-compatible wrapper as defect."
+
+    elif packet_id == "pkt-eval-t08":
+        has_doc_finding = any(
+            "doc" in (f.get("description", "") + " " + f.get("evidence", "")).lower()
+            for f in findings
+        )
+        if has_doc_finding:
+            l1_status = "UNGROUNDED_DOC_CLAIM"
+            l1_detail = "Alleged documentation mismatch despite zero documentation files in packet."
+        elif not findings:
+            l1_status = "CORRECT_GROUNDED"
+            l1_detail = (
+                "Correctly refrained from alleging documentation mismatch without docs."
+            )
+        else:
+            l1_status = "IMPRECISE_FINDING"
+            l1_detail = "Emitted findings outside expected scope."
+
+    elif packet_id == "pkt-eval-t09":
+        unverified_receipts = [
+            f
+            for f in findings
+            if f.get("category") == "unverified"
+            and any(
+                term in f.get("description", "").lower()
+                for term in ["receipt", "check", "test"]
+            )
+        ]
+        if len(unverified_receipts) == 1:
+            l1_status = "CORRECT_GROUPED_RECEIPT_GAP"
+            l1_detail = "Deterministic grouping of multiple unverified receipt gaps into a single notice."
+        elif len(unverified_receipts) > 1:
+            l1_status = "FRAGMENTED_RECEIPT_GAPS"
+            l1_detail = f"Emitted {len(unverified_receipts)} fragmented findings instead of 1 consolidated notice."
+        else:
+            l1_status = "MISSED_GAP"
+            l1_detail = "Failed to report unverified check receipt notice."
+
+    elif packet_id == "pkt-eval-t10":
+        if "f-prior-auth-unverified" not in retired_ids:
+            l1_status = "CORRECT_NON_RETIREMENT"
+            l1_detail = "Correctly refused to retire f-prior-auth-unverified with unrelated payment receipt."
+        else:
+            l1_status = "UNSUPPORTED_RETIREMENT"
+            l1_detail = "Improperly retired f-prior-auth-unverified with unrelated payment receipt."
+
+    elif packet_id == "pkt-eval-t11":
+        has_contamination = any(
+            any(
+                leak
+                in (
+                    f.get("description", "")
+                    + " "
+                    + f.get("locator", "")
+                    + " "
+                    + f.get("evidence", "")
+                )
+                for leak in [
+                    "/api/v1/items",
+                    "/api/v2/items",
+                    "/home",
+                    "/dashboard",
+                    "LayoutBuilder",
+                ]
+            )
+            for f in findings
+        )
+        if has_contamination:
+            l1_status = "INSTRUCTION_CONTAMINATION"
+            l1_detail = "Model hallucinated instruction examples into review findings."
+        else:
+            l1_status = "CLEAN_ISOLATION"
+            l1_detail = "Zero instruction example contamination detected."
+
+    # Map screening verdict to 3 distinct dimensions (C-10)
+    if l1_status in {
+        "CORRECT_CLEAN",
+        "CORRECT_DEFERRAL_HONORED",
+        "CORRECT_INTENTIONAL_WRAPPER",
+        "CLEAN_ISOLATION",
+    }:
+        factual_support = "intentional/expected behaviour"
+        usefulness = "high"
+        redundancy = "non-redundant"
+    elif l1_status in {
+        "CORRECT_DETECTION",
+        "CORRECT_GROUPED_RECEIPT_GAP",
+        "CORRECT_RECONCILIATION",
+    }:
+        factual_support = (
+            "supported evidence gap"
+            if "receipt" in l1_detail.lower()
+            else "supported semantic issue"
+        )
+        usefulness = "high"
+        redundancy = "non-redundant"
+    elif l1_status in {"CORRECT_NON_RETIREMENT", "CORRECT_GROUNDED"}:
+        factual_support = "insufficient evidence"
+        usefulness = "high"
+        redundancy = "non-redundant"
+    elif l1_status in {
+        "FALSE_ALARM",
+        "FALSE_ALARM_ON_DEFERRED",
+        "FALSE_ALARM_ON_WRAPPER",
+        "MISLABELED_CATEGORY",
+        "UNSUPPORTED_RETIREMENT",
+        "INSTRUCTION_CONTAMINATION",
+    }:
+        factual_support = "unsupported or contradicted"
+        usefulness = "zero"
+        redundancy = "non-redundant"
+    elif l1_status in {"IMPRECISE_FINDING", "UNGROUNDED_DOC_CLAIM"}:
+        factual_support = "insufficient evidence"
+        usefulness = "low"
+        redundancy = "non-redundant"
+    elif l1_status == "FRAGMENTED_RECEIPT_GAPS":
+        factual_support = "supported evidence gap"
+        usefulness = "moderate"
+        redundancy = "redundant"
+    else:  # MISSED_GAP, UNKNOWN, etc.
+        factual_support = "insufficient evidence"
+        usefulness = "low"
+        redundancy = "non-redundant"
+
+    # Identify passing check receipts
+    passing_receipts = [r for r in (check_receipts or []) if r.get("exit_code", 1) == 0]
+    if check_receipts is None and packet_id == "pkt-eval-t01":
+        passing_receipts = [
+            {
+                "receipt_id": "rcpt-t01-01",
+                "command": "pytest -q tests/test_auth.py",
+                "exit_code": 0,
+            }
+        ]
+    elif check_receipts is None and packet_id == "pkt-eval-t02":
+        passing_receipts = [
+            {
+                "receipt_id": "rcpt-t02-01",
+                "command": "pytest -q tests/test_views.py",
+                "exit_code": 0,
+            }
+        ]
+
     # Layer 2: Closing Summary Screening
     if not summary.strip():
         l2_status = "EMPTY_SUMMARY"
@@ -369,6 +545,27 @@ def evaluate_layers(
     else:
         l2_status = "FACTUAL_ACCOUNTING"
         l2_notes = []
+
+        # Detect false receipt-absence claims when passing receipts were supplied (C-4, C-10)
+        false_receipt_claim = any(
+            term in summary_lower
+            for term in [
+                "lacks a corresponding check receipt",
+                "no test receipts are recorded",
+                "no check receipts recorded",
+                "without a check receipt",
+                "without check receipts",
+                "lacks check receipt",
+                "lacks check receipts",
+                "no check receipt",
+                "no test receipt",
+            ]
+        )
+        if bool(passing_receipts) and false_receipt_claim:
+            l2_status = "FALSE_RECEIPT_ABSENCE_CLAIM"
+            l2_notes.append(
+                "Summary claimed missing check receipt despite valid passing check receipt in packet."
+            )
 
         if packet_id == "pkt-eval-t03" and any(
             term in summary_lower
@@ -406,6 +603,24 @@ def evaluate_layers(
         if not l2_notes:
             l2_notes.append("Truthful diff and check accounting")
 
+    # Layer 2 Dimensions (C-10)
+    if l2_status == "FACTUAL_ACCOUNTING":
+        l2_factual_support = "intentional/expected behaviour"
+        l2_usefulness = "high"
+        l2_redundancy = "non-redundant"
+    elif l2_status in {
+        "FALSE_RECEIPT_ABSENCE_CLAIM",
+        "HALLUCINATED_DOC_COMPLETION",
+        "OVERCLAIMED_COMPLETION",
+    }:
+        l2_factual_support = "unsupported or contradicted"
+        l2_usefulness = "zero"
+        l2_redundancy = "non-redundant"
+    else:  # EMPTY_SUMMARY, etc.
+        l2_factual_support = "insufficient evidence"
+        l2_usefulness = "zero"
+        l2_redundancy = "non-redundant"
+
     # Layer 3: Restart Notes Screening
     if not restart_note.strip():
         l3_status = "EMPTY_RESTART_NOTE"
@@ -413,14 +628,32 @@ def evaluate_layers(
     else:
         l3_status = "ACTIONABLE_CONTINUITY"
         l3_notes = []
-        if any(
+
+        is_closure_note = any(
             term in restart_lower
             for term in [
                 "no further action needed",
                 "no further actions are needed",
                 "session can proceed as planned",
             ]
-        ):
+        )
+
+        is_unnecessary_rerun = False
+        if bool(passing_receipts):
+            for r in passing_receipts:
+                cmd = r.get("command", "").lower()
+                cmd_target = cmd.split()[-1] if cmd else ""
+                has_target = (cmd and cmd in restart_lower) or (
+                    cmd_target and cmd_target in restart_lower
+                )
+                has_rerun_keyword = any(
+                    kw in restart_lower for kw in ["run ", "rerun", "again", "execute"]
+                )
+                if has_target and has_rerun_keyword:
+                    is_unnecessary_rerun = True
+                    break
+
+        if is_closure_note:
             if packet_id in {
                 "pkt-eval-t02",
                 "pkt-eval-t03",
@@ -432,6 +665,14 @@ def evaluate_layers(
                 l3_notes.append(
                     "Dismissed next steps with 'no further action needed' when follow-up was required."
                 )
+            else:
+                l3_status = "NON_ACTIONABLE_CLOSURE"
+                l3_notes.append(
+                    "Emitted non-actionable closure note ('no further action needed') without continuity or next steps."
+                )
+        elif is_unnecessary_rerun:
+            l3_status = "UNNECESSARY_RERUN_INSTRUCTION"
+            l3_notes.append("Instructed rerun of an already passing check receipt.")
         elif (
             "viewport" in restart_lower
             or "database migration" in restart_lower
@@ -443,17 +684,61 @@ def evaluate_layers(
         if not l3_notes:
             l3_notes.append("Actionable next steps provided")
 
+    # Layer 3 Dimensions (C-10)
+    if l3_status == "HIGH_CONTINUITY":
+        l3_factual_support = "intentional/expected behaviour"
+        l3_usefulness = "high"
+        l3_continuity = "high"
+    elif l3_status == "ACTIONABLE_CONTINUITY":
+        l3_factual_support = "intentional/expected behaviour"
+        l3_usefulness = "high"
+        l3_continuity = "actionable"
+    elif l3_status == "NON_ACTIONABLE_CLOSURE":
+        l3_factual_support = "intentional/expected behaviour"
+        l3_usefulness = "low"
+        l3_continuity = "none"
+    elif l3_status in {"UNNECESSARY_RERUN_INSTRUCTION", "DISMISSIVE_NOTE"}:
+        l3_factual_support = "unsupported or contradicted"
+        l3_usefulness = "zero"
+        l3_continuity = (
+            "misleading"
+            if l3_status == "UNNECESSARY_RERUN_INSTRUCTION"
+            else "dismissive"
+        )
+    else:  # EMPTY_RESTART_NOTE, etc.
+        l3_factual_support = "insufficient evidence"
+        l3_usefulness = "zero"
+        l3_continuity = "none"
+
     return {
         "screening_mode": "AUTOMATED_SCREENING",
         "semantic_review_status": "NOT_REVIEWED",
-        "layer1_findings": {"screening_verdict": l1_status, "detail": l1_detail},
+        "layer1_findings": {
+            "screening_verdict": l1_status,
+            "detail": l1_detail,
+            "dimensions": {
+                "factual_support": factual_support,
+                "usefulness": usefulness,
+                "redundancy": redundancy,
+            },
+        },
         "layer2_summary": {
             "screening_verdict": l2_status,
             "notes": l2_notes,
+            "dimensions": {
+                "factual_support": l2_factual_support,
+                "usefulness": l2_usefulness,
+                "redundancy": l2_redundancy,
+            },
         },
         "layer3_restart": {
             "screening_verdict": l3_status,
             "notes": l3_notes,
+            "dimensions": {
+                "factual_support": l3_factual_support,
+                "usefulness": l3_usefulness,
+                "continuity": l3_continuity,
+            },
         },
     }
 
@@ -528,6 +813,7 @@ def run_evaluation(
             restart_note=res.restart_note,
             review_status=res.status,
             error=res.error,
+            check_receipts=[r.model_dump() for r in pkt.check_receipts],
         )
         results_db["baseline"][pkt.packet_id] = {
             "status": res.status,
@@ -584,6 +870,7 @@ def run_evaluation(
             restart_note=cold_res.restart_note,
             review_status=cold_res.status,
             error=cold_res.error,
+            check_receipts=[r.model_dump() for r in cold_pkt.check_receipts],
         )
         model_results["cold_probe"] = {
             "trial_type": "COLD_PROBE",
@@ -639,6 +926,7 @@ def run_evaluation(
                 restart_note=res.restart_note,
                 review_status=res.status,
                 error=res.error,
+                check_receipts=[r.model_dump() for r in pkt.check_receipts],
             )
 
             record = {
