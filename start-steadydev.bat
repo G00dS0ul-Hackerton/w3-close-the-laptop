@@ -20,7 +20,7 @@ if %ERRORLEVEL% EQU 0 (
         echo [OK] Detected 'python'.
     ) else (
         echo [ERROR] Neither 'uv' nor 'python' was found on your PATH.
-        echo Please install uv (recommended: https://docs.astral.sh/uv/) or Python 3.12+.
+        echo Please install uv - see https://docs.astral.sh/uv/ - or Python 3.12+.
         echo See QUICKSTART.md for setup instructions.
         echo.
         pause
@@ -28,7 +28,19 @@ if %ERRORLEVEL% EQU 0 (
     )
 )
 
-REM 2. Advisory check for Ollama daemon
+REM 2. Check for Git
+where git >nul 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] 'git' was not found on your PATH. Git is required to track code changes.
+    echo Please install Git for Windows: https://git-scm.com/
+    echo.
+    pause
+    exit /b 1
+) else (
+    echo [OK] Detected 'git'.
+)
+
+REM 3. Advisory check for Ollama daemon
 curl -s http://127.0.0.1:11434/api/tags >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo [NOTICE] Local Ollama daemon not detected at http://127.0.0.1:11434.
@@ -41,7 +53,7 @@ if %ERRORLEVEL% NEQ 0 (
     echo [OK] Detected active local Ollama daemon.
 )
 
-REM 3. Resolve directory paths
+REM 4. Resolve directory paths
 set ROOT_DIR=%~dp0
 if exist "%ROOT_DIR%backend" (
     set BACKEND_DIR=%ROOT_DIR%backend
@@ -57,12 +69,19 @@ if exist "%ROOT_DIR%desktop\desktop.exe" (
     ) else (
         echo [ERROR] Could not locate desktop.exe.
         echo Expected at %ROOT_DIR%desktop\desktop.exe.
+        echo.
         pause
         exit /b 1
     )
 )
 
-REM 4. Resolve Target Git Repository
+REM Handle syntax check / test flag
+if "%~1"=="--test-syntax" (
+    echo [OK] Syntax check passed.
+    exit /b 0
+)
+
+REM 5. Resolve Target Git Repository
 if not "%~1"=="" (
     set TARGET_REPO=%~1
 ) else (
@@ -92,15 +111,32 @@ if not "%~1"=="" (
 
 echo [OK] Target Git Repository: !TARGET_REPO!
 
-REM 5. Start Python loopback backend engine
+REM 6. Start Python loopback backend engine
 echo Starting SteadyDev Python engine on 127.0.0.1:8765...
 cd /d "%BACKEND_DIR%"
 start "SteadyDev Backend Engine" /min %RUN_CMD% --repo-path "!TARGET_REPO!" --port 8765 --token dev-token-123
 
-REM Give backend server 2 seconds to initialize socket
-timeout /t 2 /nobreak >nul
+REM 7. Wait for backend server to be healthy
+echo Waiting for SteadyDev backend engine to initialize...
+set BACKEND_READY=0
+for /L %%i in (1,1,20) do (
+    if !BACKEND_READY! EQU 0 (
+        curl -s http://127.0.0.1:8765/api/health >nul 2>nul
+        if !ERRORLEVEL% EQU 0 (
+            set BACKEND_READY=1
+            echo [OK] Backend engine is ready.
+        ) else (
+            timeout /t 1 /nobreak >nul
+        )
+    )
+)
 
-REM 6. Launch Flutter Desktop Client
+if !BACKEND_READY! EQU 0 (
+    echo [WARNING] Backend engine did not respond on port 8765 within 20s.
+    echo Launching desktop client anyway; you can click 'Retry' once the engine starts.
+)
+
+REM 8. Launch Flutter Desktop Client
 echo Launching SteadyDev Desktop Client...
 start "" "%DESKTOP_EXE%"
 
