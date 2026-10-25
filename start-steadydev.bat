@@ -41,7 +41,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 REM 3. Advisory check for Ollama daemon
-curl -s http://127.0.0.1:11434/api/tags >nul 2>nul
+curl.exe --connect-timeout 2 --max-time 3 -s http://127.0.0.1:11434/api/tags >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo [NOTICE] Local Ollama daemon not detected at http://127.0.0.1:11434.
     echo SteadyDev will start in offline deterministic baseline mode.
@@ -53,8 +53,8 @@ if %ERRORLEVEL% NEQ 0 (
     echo [OK] Detected active local Ollama daemon.
 )
 
-REM 4. Resolve directory paths
-set ROOT_DIR=%~dp0
+REM 4. Resolve directory paths using 8.3 short paths (resolves Unicode/emoji paths)
+set ROOT_DIR=%~dps0
 if exist "%ROOT_DIR%backend" (
     set BACKEND_DIR=%ROOT_DIR%backend
 ) else (
@@ -121,12 +121,12 @@ echo Waiting for SteadyDev backend engine to initialize...
 set BACKEND_READY=0
 for /L %%i in (1,1,20) do (
     if !BACKEND_READY! EQU 0 (
-        curl -s http://127.0.0.1:8765/api/health >nul 2>nul
+        curl.exe --connect-timeout 1 --max-time 2 -s http://127.0.0.1:8765/api/health >nul 2>nul
         if !ERRORLEVEL% EQU 0 (
             set BACKEND_READY=1
             echo [OK] Backend engine is ready.
         ) else (
-            timeout /t 1 /nobreak >nul
+            ping 127.0.0.1 -n 2 >nul
         )
     )
 )
@@ -141,9 +141,10 @@ echo Launching SteadyDev Desktop Client...
 start "" "%DESKTOP_EXE%"
 
 echo.
-echo SteadyDev is now running!
-echo If the desktop window displays an offline banner on launch, click 'Retry'.
-echo Closing the desktop application will automatically terminate the backend engine.
+echo ====================================================================
+echo   SteadyDev is now running!
+echo   If the desktop window displays an offline banner on launch, click 'Retry'.
+echo   Press any key to close this launcher window (or keep it open for logs).
+echo ====================================================================
 echo.
-timeout /t 4 >nul
-exit /b 0
+pause
