@@ -104,7 +104,15 @@ Milestone M6 validated final release configuration, executed full test regressio
 
 ## Local Setup & Quickstart
 
-### Prerequisites
+### Downloadable Windows Preview Release (v0.1.0)
+For users who want to run the pre-built desktop client without compiling Flutter from source:
+1. Download **`steadydev-windows-preview-v0.1.0.zip`** from [GitHub Releases](https://github.com/G00dS0ul-Hackerton/w3-close-the-laptop/releases).
+2. Extract the archive and review [QUICKSTART.md](QUICKSTART.md).
+3. Double-click **`start-steadydev.bat`** to launch both the Python engine and Flutter desktop UI.
+
+---
+
+### Prerequisites (Source Build & Development)
 - **Python 3.12+** (tested on 3.12.10) with `uv` (tested on 0.12.23)
 - **Flutter 3.24+** (tested on Flutter 3.24.5 with Windows desktop toolchain)
 - **Ollama** (tested on 0.40.6) running locally with `gemma3:4b` and `qwen2.5-coder:3b`:
