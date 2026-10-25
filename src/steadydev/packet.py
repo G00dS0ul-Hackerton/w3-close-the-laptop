@@ -7,6 +7,19 @@ import uuid
 
 from steadydev.models import ChangedFile, CheckReceipt, Finding, ReviewPacket
 
+
+class PacketError(Exception):
+    """Base exception for packet errors."""
+
+
+class ScopeDeniedError(PacketError):
+    """Raised when repository path or file path is outside allowed boundary."""
+
+
+class WorkingTreeUnchanged(PacketError):
+    """Raised when working tree and receipts have not changed since last review."""
+
+
 # Excluded directory and file patterns
 EXCLUDED_PATTERNS = [
     r"(?:^|[\\/])\.git(?:[\\/]|$)",

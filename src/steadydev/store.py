@@ -72,6 +72,15 @@ class SessionStore:
             conn.execute("BEGIN IMMEDIATE;")
             yield conn
             conn.execute("COMMIT;")
+        except sqlite3.DatabaseError as exc:
+            try:
+                from steadydev.telemetry import capture_unexpected_exception
+
+                capture_unexpected_exception(exc, {"component": "storage"})
+            except Exception:  # noqa: BLE001, S110
+                pass
+            conn.execute("ROLLBACK;")
+            raise
         except Exception:
             conn.execute("ROLLBACK;")
             raise
@@ -80,26 +89,35 @@ class SessionStore:
 
     def _migrate(self) -> None:
         """Apply schema migrations up to the current schema version (V2)."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA user_version;")
-            current_version = cursor.fetchone()[0]
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA user_version;")
+                current_version = cursor.fetchone()[0]
 
-            if current_version < 1:
-                self._apply_v1_migration(conn)
-                conn.execute("PRAGMA user_version = 1;")
+                if current_version < 1:
+                    self._apply_v1_migration(conn)
+                    conn.execute("PRAGMA user_version = 1;")
 
-            if current_version < 2:
-                self._apply_v2_migration(conn)
-                conn.execute("PRAGMA user_version = 2;")
+                if current_version < 2:
+                    self._apply_v2_migration(conn)
+                    conn.execute("PRAGMA user_version = 2;")
 
-            if current_version < 3:
-                self._apply_v3_migration(conn)
-                conn.execute("PRAGMA user_version = 3;")
+                if current_version < 3:
+                    self._apply_v3_migration(conn)
+                    conn.execute("PRAGMA user_version = 3;")
 
-            if current_version < 4:
-                self._apply_v4_migration(conn)
-                conn.execute("PRAGMA user_version = 4;")
+                if current_version < 4:
+                    self._apply_v4_migration(conn)
+                    conn.execute("PRAGMA user_version = 4;")
+        except sqlite3.DatabaseError as exc:
+            try:
+                from steadydev.telemetry import capture_unexpected_exception
+
+                capture_unexpected_exception(exc, {"component": "storage"})
+            except Exception:  # noqa: BLE001, S110
+                pass
+            raise
 
     def _apply_v1_migration(self, conn: sqlite3.Connection) -> None:
         """Create initial tables for sessions, snapshots, findings, and receipts."""

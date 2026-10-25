@@ -2,11 +2,12 @@
 
 Runs a real review through the reviewer and telemetry pipeline with InMemoryRecordingTransport,
 capturing authentic timing spans (model loading vs prompt evaluation vs token evaluation),
-and compares it with fingerprint deduplication cache hits.
+pipeline stage spans, operational metrics, and compares it with fingerprint deduplication cache hits.
 Follows workspace rules:
 - Plain ASCII console output (P-4)
 - At most 2 model calls total, unloads model immediately after (P-9)
 - Real numbers only; zero invented tokens or costs.
+- Secret-canary verification across raw wire bytes.
 """
 
 import datetime
@@ -14,6 +15,7 @@ import json
 import pathlib
 import sys
 import time
+from typing import Any
 
 repo_root = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(repo_root))
@@ -30,9 +32,67 @@ from steadydev.telemetry import (  # type: ignore
 )
 
 
+class MockOllamaClient:
+    """Fast deterministic mock client for quick test verification."""
+
+    def __init__(self) -> None:
+        self.active_request_event = None
+
+    def cancel_active(self) -> None:
+        pass
+
+    def unload_model(self, model_name: str) -> None:
+        pass
+
+    def chat(
+        self, model: str, messages: list[dict[str, Any]], **kwargs: Any
+    ) -> dict[str, Any]:
+        return {
+            "message": {
+                "role": "assistant",
+                "content": json.dumps(
+                    {
+                        "findings": [],
+                        "closing_summary": "Mock review verified cleanly.",
+                        "restart_note": "Clean state.",
+                        "status": "clean",
+                        "retired_finding_ids": [],
+                    }
+                ),
+            },
+            "done_reason": "stop",
+            "prompt_eval_count": 1200,
+            "eval_count": 65,
+            "load_duration": 1500000000,
+            "prompt_eval_duration": 25000000000,
+            "eval_duration": 10000000000,
+            "total_duration": 36500000000,
+        }
+
+
+def _parse_ts(ts: Any) -> float:
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    if isinstance(ts, str):
+        try:
+            dt = datetime.datetime.fromisoformat(ts)
+            return dt.timestamp()
+        except ValueError:
+            try:
+                return float(ts)
+            except ValueError:
+                return 0.0
+    return 0.0
+
+
 def main() -> int:
+    is_mock = "--mock" in sys.argv
     print("-" * 72)
-    print("SteadyDev M4 Trace-Led Performance Diagnosis Probe")
+    print("SteadyDev M4 Trace-Led Performance & Operational Diagnosis Probe")
+    if is_mock:
+        print("Mode: Mock Verification Mode (--mock)")
+    else:
+        print("Mode: Live Model Review Mode")
     print("-" * 72)
 
     transport = InMemoryRecordingTransport()
@@ -42,7 +102,7 @@ def main() -> int:
         force_enable=True,
     )
 
-    client = OllamaClient()
+    client = MockOllamaClient() if is_mock else OllamaClient()
     model_name = "qwen2.5-coder:3b"
 
     # Pre-probe unload
@@ -55,7 +115,7 @@ def main() -> int:
 
     reviewer = Reviewer(ollama_client=client)
 
-    print(f"Executing real model review for {model_name} on fixture {t01_path.name}...")
+    print(f"Executing review for {model_name} on fixture {t01_path.name}...")
     t_start = time.perf_counter()
 
     with start_review_span(
@@ -94,6 +154,7 @@ def main() -> int:
     # Extract spans from captured envelope
     tx_data = {}
     child_spans = []
+    stage_durations_ms = {}
 
     for env in transport.envelopes:
         for item in getattr(env, "items", []):
@@ -107,11 +168,17 @@ def main() -> int:
                         payload.get("contexts", {}).get("trace", {}).get("data", {})
                     )
                     for s in payload.get("spans", []):
+                        op = s.get("op", "")
+                        t_start = _parse_ts(s.get("start_timestamp"))
+                        t_end = _parse_ts(s.get("timestamp"))
+                        dur = (t_end - t_start) * 1000.0 if t_end and t_start else 0.0
+                        stage_durations_ms[op] = max(dur, 0.0)
                         child_spans.append(
                             {
-                                "op": s.get("op"),
+                                "op": op,
                                 "name": s.get("description") or s.get("name"),
                                 "data": s.get("data", {}),
+                                "duration_ms": dur,
                             }
                         )
                 elif getattr(item, "type", "") == "span" and "items" in payload:
@@ -122,11 +189,16 @@ def main() -> int:
                             for k, v in attrs.items()
                         }
                         op = flat_data.get("sentry.op", "")
+                        t_start = _parse_ts(s.get("start_timestamp"))
+                        t_end = _parse_ts(s.get("timestamp"))
+                        dur = (t_end - t_start) * 1000.0 if t_end and t_start else 0.0
+                        stage_durations_ms[op] = max(dur, 0.0)
                         child_spans.append(
                             {
                                 "op": op,
                                 "name": s.get("name"),
                                 "data": flat_data,
+                                "duration_ms": dur,
                             }
                         )
 
@@ -167,12 +239,50 @@ def main() -> int:
         f"Deduplication speedup: {elapsed_wall_ms / max(dedup_latency_ms, 0.001):.1f}x faster"
     )
 
+    # Secret canary verification across all raw bytes
+    canary_tokens = [
+        "CANARY_SECRET_sk_m4_test_998877",
+        "CANARY_AUTH_BEARER_tok_443322",
+        "CANARY_USER_canary_user_998877",
+    ]
+    canary_leaks_found = []
+    for env in transport.envelopes:
+        for item in getattr(env, "items", []):
+            if hasattr(item, "get_bytes"):
+                raw_bytes = item.get_bytes()
+                for c in canary_tokens:
+                    if (
+                        c.encode("utf-8") in raw_bytes
+                        or c.encode("unicode_escape") in raw_bytes
+                    ):
+                        canary_leaks_found.append(c)
+
+    print("\n--- Secret Canary Verification ---")
+    print(f"Canary tokens checked: {len(canary_tokens)}")
+    print(f"Canary leaks detected: {len(canary_leaks_found)}")
+    if canary_leaks_found:
+        print(f"LEAK DETECTED: {canary_leaks_found}")
+    else:
+        print("Wire bytes verified clean: zero secret canary leaks.")
+
     diagnosis_output = {
         "timestamp_utc": datetime.datetime.now(datetime.UTC).isoformat(),
         "model": model_name,
+        "mode": "mock" if is_mock else "live",
         "wall_latency_ms": elapsed_wall_ms,
         "dedup_latency_ms": dedup_latency_ms,
         "speedup_ratio": elapsed_wall_ms / max(dedup_latency_ms, 0.001),
+        "stage_durations_ms": stage_durations_ms,
+        "outcomes": {
+            "status": result.status,
+            "findings_count": len(result.findings),
+            "retired_count": len(result.retired_finding_ids),
+            "effective_model": result.model_name or model_name,
+        },
+        "chunk_coverage": {
+            "chunks_count": 1,
+            "files_count": len(pkt.changed_files),
+        },
         "span_telemetry": {
             "load_duration_ms": load_ms,
             "prompt_eval_duration_ms": prompt_eval_ms,
@@ -181,6 +291,11 @@ def main() -> int:
             "input_tokens": in_tokens,
             "output_tokens": out_tokens,
             "total_tokens": in_tokens + out_tokens,
+        },
+        "canary_verification": {
+            "canaries_tested": canary_tokens,
+            "canaries_found": len(canary_leaks_found),
+            "verified_clean": len(canary_leaks_found) == 0,
         },
         "finding": (
             f"Prompt evaluation dominates model execution time ({prompt_eval_pct:.1f}%). "
@@ -197,7 +312,7 @@ def main() -> int:
         json.dump(diagnosis_output, f, indent=2)
 
     print(f"\nDiagnosis results saved to {out_file.relative_to(repo_root)}")
-    return 0
+    return 0 if len(canary_leaks_found) == 0 else 1
 
 
 if __name__ == "__main__":

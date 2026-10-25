@@ -36,6 +36,13 @@ ALLOWED_SPAN_OPS = {
     "gen_ai.synthesis",
     "gen_ai.execute_tool",
     "review.baseline",
+    # Internal pipeline stage spans
+    "snapshot.collect",
+    "cache.fingerprint_check",
+    "chunk.prepare",
+    "validation.schema_check",
+    "reconciliation.reconcile",
+    "persistence.store",
 }
 
 # Strict span data key allowlist
@@ -56,6 +63,14 @@ ALLOWED_SPAN_DATA_KEYS = {
     "ollama.timing.load_duration_ms",
     "ollama.timing.prompt_eval_duration_ms",
     "ollama.timing.eval_duration_ms",
+    "ollama.done_reason",
+    "stage.name",
+    "stage.files_count",
+    "stage.status",
+    "cache.hit",
+    "persistence.status",
+    "validation.is_valid",
+    "reconciliation.reconciled_count",
     "ai.total_duration_ms",
     "ai.load_duration_ms",
     "ai.prompt_eval_duration_ms",
@@ -87,6 +102,7 @@ ALLOWED_SPAN_DATA_KEYS = {
     "synthesis.findings_input_count",
     "error.type",
     "session_hash",
+    "run_id",
 }
 
 # Strict span tag key allowlist
@@ -95,6 +111,17 @@ ALLOWED_SPAN_TAG_KEYS = {
     "fallback_used",
     "review_status",
     "ai.pipeline",
+    "component",
+    "error_type",
+}
+
+# Expected operational outcome exceptions that must NOT produce Sentry errors
+EXPECTED_ERROR_NAMES = {
+    "CancelledError",
+    "WorkingTreeUnchanged",
+    "AdmissionLockBusy",
+    "StaleSnapshotConflict",
+    "ScopeDeniedError",
 }
 
 
@@ -247,6 +274,71 @@ def before_send_transaction_allowlist_scrubber(
         sanitized_spans.append(span)
 
     event["spans"] = sanitized_spans
+    return event
+
+
+def before_send_error_allowlist_scrubber(
+    event: dict[str, Any], hint: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Strict allowlist sanitizer for Sentry error events."""
+    if _DRAIN_MODE == "drop_unsent":
+        return None
+
+    # Drop expected operational outcomes
+    if hint.get("exc_info"):
+        exc = hint["exc_info"][1]
+        if exc is not None and type(exc).__name__ in EXPECTED_ERROR_NAMES:
+            return None
+
+    exc_entries = event.get("exception", {}).get("values", [])
+    for entry in exc_entries:
+        if entry.get("type") in EXPECTED_ERROR_NAMES:
+            return None
+
+    # Strip forbidden root context structures
+    event.pop("breadcrumbs", None)
+    event.pop("request", None)
+    event.pop("user", None)
+    event.pop("modules", None)
+    event.pop("server_name", None)
+    event.pop("environment", None)
+    event.pop("extra", None)
+
+    # Sanitize exception message and stack frames
+    if "exception" in event and isinstance(event["exception"], dict):
+        values = event["exception"].get("values", [])
+        for val in values:
+            if "value" in val:
+                val["value"] = redact_sensitive_text(str(val["value"]))
+            st = val.get("stacktrace", {})
+            if isinstance(st, dict) and "frames" in st:
+                sanitized_frames = []
+                for frame in st["frames"]:
+                    # Never include local variables or source context
+                    frame.pop("vars", None)
+                    frame.pop("pre_context", None)
+                    frame.pop("context_line", None)
+                    frame.pop("post_context", None)
+                    # Normalize Windows path to repo-relative module
+                    fn = frame.get("filename", "")
+                    if fn:
+                        fn = redact_sensitive_text(fn)
+                        if "steadydev" in fn:
+                            fn = "steadydev" + fn.split("steadydev", 1)[1]
+                        frame["filename"] = fn
+                    if "abs_path" in frame:
+                        frame.pop("abs_path", None)
+                    sanitized_frames.append(frame)
+                st["frames"] = sanitized_frames
+
+    # Sanitize root error tags
+    if "tags" in event and isinstance(event["tags"], dict):
+        event["tags"] = {
+            k: _sanitize_string_value(v)
+            for k, v in event["tags"].items()
+            if k in ALLOWED_SPAN_TAG_KEYS
+        }
+
     return event
 
 
@@ -444,9 +536,7 @@ def init_telemetry(
         "integrations": [],
         "max_breadcrumbs": 0,
         "before_breadcrumb": lambda b, h: None,
-        "before_send": lambda e, h: (
-            None
-        ),  # Drop raw error events to prevent local variable leak
+        "before_send": before_send_error_allowlist_scrubber,
         "before_send_transaction": before_send_transaction_allowlist_scrubber,
         "send_default_pii": False,
         "include_local_variables": False,
@@ -480,17 +570,31 @@ def start_review_span(
     primary_model: str,
     fallback_model: str,
     session_id: str = "",
+    sentry_trace: str | None = None,
+    baggage: str | None = None,
+    run_id: str | None = None,
 ) -> Generator[Any, None, None]:
-    """Context manager for root review orchestration span/transaction."""
+    """Context manager for root review orchestration span/transaction with trace continuation."""
     if not _TELEMETRY_INITIALIZED or not HAVE_SENTRY:
         yield NoOpSpan(op="gen_ai.invoke_agent", name="steadydev.review")
         return
 
-    # Create root span / transaction
-    span_ctx = sentry_sdk.start_transaction(
-        name="steadydev.review",
-        op="gen_ai.invoke_agent",
-    )
+    # Create root span / transaction with continuation if provided
+    if sentry_trace:
+        headers_dict = {"sentry-trace": sentry_trace}
+        if baggage:
+            headers_dict["baggage"] = baggage
+        transaction = sentry_sdk.continue_trace(
+            headers_dict,
+            name="steadydev.review",
+            op="gen_ai.invoke_agent",
+        )
+        span_ctx = sentry_sdk.start_transaction(transaction)
+    else:
+        span_ctx = sentry_sdk.start_transaction(
+            name="steadydev.review",
+            op="gen_ai.invoke_agent",
+        )
     global _CURRENT_EXPORT_STATE, _LAST_DELIVERY_RECEIPT
     trace_id_val = None
     if hasattr(span_ctx, "trace_id"):
@@ -522,6 +626,8 @@ def start_review_span(
         span.set_data("review.chunks_count", chunks_count)
         span.set_data("review.primary_model", primary_model)
         span.set_data("review.fallback_model", fallback_model)
+        if run_id:
+            span.set_data("run_id", run_id)
         if session_id:
             sess_hash = hashlib.sha256(session_id.encode()).hexdigest()[:8]
             span.set_data("session_hash", sess_hash)
@@ -602,6 +708,53 @@ def start_tool_span(
         span.set_data("gen_ai.operation.name", "execute_tool")
         span.set_data("ai.system", "baseline")
         span.set_data("baseline.reason", reason)
+        try:
+            yield span
+        except Exception as exc:
+            span.set_status("internal_error")
+            span.set_data("error.type", type(exc).__name__)
+            raise
+
+
+def capture_unexpected_exception(
+    exc: BaseException, context_dict: dict[str, Any] | None = None
+) -> None:
+    """Capture unexpected engine errors with strict sanitization; ignore expected outcomes."""
+    if not _TELEMETRY_INITIALIZED or not HAVE_SENTRY:
+        return
+    if _DRAIN_MODE == "drop_unsent":
+        return
+    if type(exc).__name__ in EXPECTED_ERROR_NAMES:
+        return
+
+    try:
+        with sentry_sdk.new_scope() as scope:
+            if context_dict:
+                for k, v in context_dict.items():
+                    if k in ALLOWED_SPAN_TAG_KEYS:
+                        scope.set_tag(k, _sanitize_string_value(v))
+            sentry_sdk.capture_exception(exc)
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+
+@contextlib.contextmanager
+def start_stage_span(
+    op: str,
+    description: str = "",
+    data: dict[str, Any] | None = None,
+) -> Generator[Any, None, None]:
+    """Context manager for internal review pipeline stages."""
+    if not _TELEMETRY_INITIALIZED or not HAVE_SENTRY:
+        yield NoOpSpan(op=op, name=description or op)
+        return
+
+    span_ctx = sentry_sdk.start_span(op=op, name=description or op)
+    with span_ctx as span:
+        if data:
+            for k, v in data.items():
+                if k in ALLOWED_SPAN_DATA_KEYS:
+                    span.set_data(k, _sanitize_string_value(v))
         try:
             yield span
         except Exception as exc:

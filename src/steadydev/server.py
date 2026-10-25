@@ -33,6 +33,7 @@ from steadydev.ollama_client import OllamaClient, OllamaClientError
 from steadydev.reviewer import Reviewer
 from steadydev.store import SessionStore
 from steadydev.telemetry import (
+    capture_unexpected_exception,
     get_configured_dsn,
     get_export_state,
     get_last_delivery_receipt,
@@ -41,17 +42,45 @@ from steadydev.telemetry import (
     mask_dsn,
     set_telemetry_opt_in,
     start_review_span,
+    start_stage_span,
     verify_and_flush,
 )
+
+
+class ServerError(Exception):
+    """Base exception for SteadyDev server errors."""
+
+
+class AdmissionLockBusy(ServerError):
+    """Raised when single-worker admission gate rejects concurrent request (HTTP 409)."""
+
+
+class CancelledError(ServerError):
+    """Raised when an active review job is cancelled by the user (HTTP 499)."""
+
+
+class StaleSnapshotConflict(ServerError):
+    """Raised when working tree snapshot changes during active review inference."""
 
 
 class ReviewJob:
     """Encapsulates job authority and cancellation predicate for a review."""
 
-    def __init__(self, job_id: str, repo_path: str, session_id: str) -> None:
+    def __init__(
+        self,
+        job_id: str,
+        repo_path: str,
+        session_id: str,
+        sentry_trace: str | None = None,
+        baggage: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
         self.job_id = job_id
         self.repo_path = repo_path
         self.session_id = session_id
+        self.sentry_trace = sentry_trace
+        self.baggage = baggage
+        self.run_id = run_id
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -115,6 +144,7 @@ class SteadyDevServer(ThreadingHTTPServer):
             updated_at=now_iso,
         )
         self._last_completed_lifecycle: ReviewLifecycleRecord | None = None
+        self._last_completed_job: ReviewJob | None = None
 
     def start_lifecycle(
         self,
@@ -818,7 +848,11 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
             # 3. Working-Tree Fingerprint Deduplication
             force_refresh = bool(body.get("force_refresh", False))
             receipts_raw = body.get("check_receipts", [])
-            _h, _d, _u, comp_hash = compute_snapshot_fingerprint(repo_path)
+            with start_stage_span(
+                "cache.fingerprint_check",
+                "Check working tree fingerprint against cache",
+            ):
+                _h, _d, _u, comp_hash = compute_snapshot_fingerprint(repo_path)
 
             if not force_refresh:
                 latest_snap = self.server.store.get_latest_snapshot(
@@ -871,10 +905,16 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                         },
                     )
                     return
+                incoming_trace = self.headers.get("sentry-trace")
+                incoming_baggage = self.headers.get("baggage")
+                incoming_run_id = self.headers.get("x-run-id")
                 job = ReviewJob(
                     job_id=f"job-{uuid.uuid4().hex[:8]}",
                     repo_path=str(repo_path),
                     session_id=session["session_id"],
+                    sentry_trace=incoming_trace,
+                    baggage=incoming_baggage,
+                    run_id=incoming_run_id,
                 )
                 raw_timeout = body.get("workflow_timeout_seconds", 180.0)
                 if raw_timeout is None or (
@@ -935,14 +975,18 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     )
                     return
 
-                packet = collect_review_packet_from_git(
-                    repo_path=repo_path,
-                    session_intention=intention,
-                    acceptance_criteria=criteria,
-                    check_receipts=receipts,
-                    prior_findings=prior,
-                    explicit_deferrals=deferrals,
-                )
+                with start_stage_span(
+                    "snapshot.collect",
+                    "Collect repository snapshot and git diff",
+                ):
+                    packet = collect_review_packet_from_git(
+                        repo_path=repo_path,
+                        session_intention=intention,
+                        acceptance_criteria=criteria,
+                        check_receipts=receipts,
+                        prior_findings=prior,
+                        explicit_deferrals=deferrals,
+                    )
 
                 # Check snapshot conflict if expected_snapshot_hash provided
                 expected_hash = body.get("expected_snapshot_hash")
@@ -989,6 +1033,9 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     primary_model=model_name,
                     fallback_model=fallback_model or "none",
                     session_id=session["session_id"],
+                    sentry_trace=job.sentry_trace,
+                    baggage=job.baggage,
+                    run_id=job.run_id,
                 ) as review_span:
                     result = self.server.reviewer.review(
                         packet,
@@ -1062,28 +1109,32 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                         return
 
                     # Persist snapshot, receipts, and findings to SQLite store
-                    head_sha = packet.git_head_sha or "0" * 40
-                    snap_id = self.server.store.save_snapshot(
-                        session_id=session["session_id"],
-                        git_head_sha=head_sha,
-                        diff_hash="",
-                        untracked_hash="",
-                        composite_hash=packet.snapshot_hash or "",
-                    )
-                    self.server.store.save_receipts(
-                        session["session_id"], snap_id, receipts
-                    )
-                    self.server.store.save_findings(
-                        session["session_id"], snap_id, result.findings
-                    )
+                    with start_stage_span(
+                        "persistence.store",
+                        "Persist snapshot, receipts, and findings to SQLite store",
+                    ):
+                        head_sha = packet.git_head_sha or "0" * 40
+                        snap_id = self.server.store.save_snapshot(
+                            session_id=session["session_id"],
+                            git_head_sha=head_sha,
+                            diff_hash="",
+                            untracked_hash="",
+                            composite_hash=packet.snapshot_hash or "",
+                        )
+                        self.server.store.save_receipts(
+                            session["session_id"], snap_id, receipts
+                        )
+                        self.server.store.save_findings(
+                            session["session_id"], snap_id, result.findings
+                        )
 
-                    if result.retired_finding_ids:
-                        for rid in result.retired_finding_ids:
-                            self.server.store.update_finding_status(
-                                finding_id=rid,
-                                status="evidence-retired",
-                                session_id=session["session_id"],
-                            )
+                        if result.retired_finding_ids:
+                            for rid in result.retired_finding_ids:
+                                self.server.store.update_finding_status(
+                                    finding_id=rid,
+                                    status="evidence-retired",
+                                    session_id=session["session_id"],
+                                )
 
                     # Update restart note only if user has not edited it in the database
                     fresh_note_sess = self.server.store.get_or_create_session(
@@ -1126,7 +1177,11 @@ class SteadyDevHandler(BaseHTTPRequestHandler):
                     deadline_exceeded="timeout" in (result.error or "").lower(),
                 )
 
+                self.server._last_completed_job = job
                 self.send_json(200, result.model_dump(mode="json"))
+            except Exception as exc:
+                capture_unexpected_exception(exc, {"component": "server_review"})
+                raise
             finally:
                 with self.server._job_lock:
                     if self.server._active_job is job:

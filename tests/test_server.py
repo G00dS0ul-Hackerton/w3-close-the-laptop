@@ -949,3 +949,38 @@ def test_unlimited_workflow_timeout_and_live_diagnostics_elapsed_and_chunks(
     finally:
         release_review.set()
         server_obj.reviewer.review = orig_review
+
+
+def test_server_continues_trace_context(running_server: dict, temp_git_repo: Path):
+    """Verify that POST /api/review accepts sentry-trace and x-run-id and continues trace context."""
+    base_url = running_server["base_url"]
+    token = running_server["token"]
+    server_obj = running_server["server"]
+
+    incoming_trace = "12345678901234567890123456789012-abcdef1234567890-1"
+    incoming_baggage = "sentry-environment=test,sentry-release=1.0.0"
+    incoming_run_id = "run-test-uuid-456"
+
+    # Run review with trace propagation headers
+    resp = httpx.post(
+        f"{base_url}/api/review",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "sentry-trace": incoming_trace,
+            "baggage": incoming_baggage,
+            "x-run-id": incoming_run_id,
+        },
+        json={
+            "repo_path": str(temp_git_repo),
+            "model": "baseline",
+            "use_baseline_fallback": True,
+        },
+    )
+    assert resp.status_code == 200
+
+    # Verify that the server recorded the incoming correlation context on the job
+    job = getattr(server_obj, "_last_completed_job", None)
+    assert job is not None
+    assert job.sentry_trace == incoming_trace
+    assert job.baggage == incoming_baggage
+    assert job.run_id == incoming_run_id

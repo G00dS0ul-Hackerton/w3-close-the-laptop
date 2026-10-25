@@ -1,17 +1,43 @@
 {
-  "timestamp_utc": "2026-10-23T15:08:30.456553+00:00",
+  "timestamp_utc": "2026-10-25T06:44:00.397768+00:00",
   "model": "qwen2.5-coder:3b",
-  "wall_latency_ms": 63834.94780000183,
-  "dedup_latency_ms": 599.5666000089841,
-  "speedup_ratio": 106.46848540103018,
-  "span_telemetry": {
-    "load_duration_ms": 14363.8556,
-    "prompt_eval_duration_ms": 36343.299,
-    "eval_duration_ms": 13002.569,
-    "total_model_duration_ms": 63771.1728,
-    "input_tokens": 1196,
-    "output_tokens": 84,
-    "total_tokens": 1280
+  "mode": "mock",
+  "wall_latency_ms": 5.397599998104852,
+  "dedup_latency_ms": 469.00340000138385,
+  "speedup_ratio": 0.011508658568549664,
+  "stage_durations_ms": {
+    "chunk.prepare": 0.057220458984375,
+    "validation.schema_check": 0.07700920104980469,
+    "gen_ai.chat": 0.0,
+    "gen_ai.execute_tool": 0.0
   },
-  "finding": "Prompt evaluation dominates model execution time (57.0%). Pre-flight snapshot fingerprint deduplication bypasses the model entirely on unchanged code, reducing review response time from 63834.9ms to 599.567ms without invoking any CPU inference."
+  "outcomes": {
+    "status": "fallback_baseline",
+    "findings_count": 0,
+    "retired_count": 0,
+    "effective_model": "qwen2.5-coder:3b-fallback-baseline"
+  },
+  "chunk_coverage": {
+    "chunks_count": 1,
+    "files_count": 2
+  },
+  "span_telemetry": {
+    "load_duration_ms": 0.0,
+    "prompt_eval_duration_ms": 0.0,
+    "eval_duration_ms": 0.0,
+    "total_model_duration_ms": 0.0,
+    "input_tokens": 1200,
+    "output_tokens": 65,
+    "total_tokens": 1265
+  },
+  "canary_verification": {
+    "canaries_tested": [
+      "CANARY_SECRET_sk_m4_test_998877",
+      "CANARY_AUTH_BEARER_tok_443322",
+      "CANARY_USER_canary_user_998877"
+    ],
+    "canaries_found": 0,
+    "verified_clean": true
+  },
+  "finding": "Prompt evaluation dominates model execution time (0.0%). Pre-flight snapshot fingerprint deduplication bypasses the model entirely on unchanged code, reducing review response time from 5.4ms to 469.003ms without invoking any CPU inference."
 }

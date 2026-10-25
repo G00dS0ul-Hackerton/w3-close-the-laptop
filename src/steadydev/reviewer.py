@@ -25,7 +25,7 @@ from steadydev.ollama_client import (
     OllamaTimeoutError,
 )
 from steadydev.packet import format_packet_for_prompt
-from steadydev.telemetry import start_chat_span, start_tool_span
+from steadydev.telemetry import start_chat_span, start_stage_span, start_tool_span
 
 SYSTEM_PROMPT = """You are SteadyDev, a quiet, local-first code review companion helping developers end their work sessions with clarity.
 Core philosophy: "You don't have to finish everything today. You just need to know where you stand and how to continue tomorrow."
@@ -298,47 +298,15 @@ class Reviewer:
             "eval_duration_ms": raw_response.get("eval_duration_ms", 0.0),
         }
 
-        content = strip_markdown_fences(raw_text)
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as err:
-            err_msg = f"Malformed model JSON: {err}"
-            attempt = ModelAttempt(
-                model=model_name,
-                outcome="schema_invalid",
-                duration_ms=timings["total_duration_ms"],
-                input_tokens=in_tokens,
-                output_tokens=out_tokens,
-                done_reason=done_reason,
-                error_detail=err_msg,
-            )
-            return None, timings, raw_text, err_msg, attempt
-
-        if not isinstance(parsed, dict):
-            err_msg = (
-                f"Model response must be a JSON object, got {type(parsed).__name__}"
-            )
-            attempt = ModelAttempt(
-                model=model_name,
-                outcome="schema_invalid",
-                duration_ms=timings["total_duration_ms"],
-                input_tokens=in_tokens,
-                output_tokens=out_tokens,
-                done_reason=done_reason,
-                error_detail=err_msg,
-            )
-            return (
-                None,
-                timings,
-                raw_text,
-                err_msg,
-                attempt,
-            )
-
-        is_multi_chunk = total_chunks is not None and total_chunks > 1
-        if is_multi_chunk:
-            if "findings" not in parsed or not isinstance(parsed.get("findings"), list):
-                err_msg = "Incomplete model response (missing required 'findings' list)"
+        with start_stage_span(
+            "validation.schema_check",
+            "Validate model output JSON schema",
+        ):
+            content = strip_markdown_fences(raw_text)
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError as err:
+                err_msg = f"Malformed model JSON: {err}"
                 attempt = ModelAttempt(
                     model=model_name,
                     outcome="schema_invalid",
@@ -350,27 +318,10 @@ class Reviewer:
                 )
                 return None, timings, raw_text, err_msg, attempt
 
-            findings_count = len(parsed["findings"])
-            if not isinstance(parsed.get("status"), str) or not parsed.get("status"):
-                parsed["status"] = (
-                    "findings_detected" if findings_count > 0 else "clean"
+            if not isinstance(parsed, dict):
+                err_msg = (
+                    f"Model response must be a JSON object, got {type(parsed).__name__}"
                 )
-            if not isinstance(parsed.get("closing_summary"), str):
-                parsed["closing_summary"] = ""
-            if not isinstance(parsed.get("restart_note"), str):
-                parsed["restart_note"] = ""
-            if not isinstance(parsed.get("retired_finding_ids"), list):
-                parsed["retired_finding_ids"] = []
-        else:
-            required_keys = {"status", "findings", "closing_summary", "restart_note"}
-            missing_keys = required_keys - set(parsed.keys())
-            if missing_keys or not isinstance(parsed.get("findings"), list):
-                msg = (
-                    f"Missing required keys in model response: {sorted(missing_keys)}"
-                    if missing_keys
-                    else "'findings' field must be a list"
-                )
-                err_msg = f"Incomplete model response ({msg})"
                 attempt = ModelAttempt(
                     model=model_name,
                     outcome="schema_invalid",
@@ -380,18 +331,82 @@ class Reviewer:
                     done_reason=done_reason,
                     error_detail=err_msg,
                 )
-                return None, timings, raw_text, err_msg, attempt
+                return (
+                    None,
+                    timings,
+                    raw_text,
+                    err_msg,
+                    attempt,
+                )
 
-        attempt = ModelAttempt(
-            model=model_name,
-            outcome="success",
-            duration_ms=timings["total_duration_ms"],
-            input_tokens=in_tokens,
-            output_tokens=out_tokens,
-            done_reason=done_reason,
-            error_detail=None,
-        )
-        return parsed, timings, raw_text, None, attempt
+            is_multi_chunk = total_chunks is not None and total_chunks > 1
+            if is_multi_chunk:
+                if "findings" not in parsed or not isinstance(
+                    parsed.get("findings"), list
+                ):
+                    err_msg = (
+                        "Incomplete model response (missing required 'findings' list)"
+                    )
+                    attempt = ModelAttempt(
+                        model=model_name,
+                        outcome="schema_invalid",
+                        duration_ms=timings["total_duration_ms"],
+                        input_tokens=in_tokens,
+                        output_tokens=out_tokens,
+                        done_reason=done_reason,
+                        error_detail=err_msg,
+                    )
+                    return None, timings, raw_text, err_msg, attempt
+
+                findings_count = len(parsed["findings"])
+                if not isinstance(parsed.get("status"), str) or not parsed.get(
+                    "status"
+                ):
+                    parsed["status"] = (
+                        "findings_detected" if findings_count > 0 else "clean"
+                    )
+                if not isinstance(parsed.get("closing_summary"), str):
+                    parsed["closing_summary"] = ""
+                if not isinstance(parsed.get("restart_note"), str):
+                    parsed["restart_note"] = ""
+                if not isinstance(parsed.get("retired_finding_ids"), list):
+                    parsed["retired_finding_ids"] = []
+            else:
+                required_keys = {
+                    "status",
+                    "findings",
+                    "closing_summary",
+                    "restart_note",
+                }
+                missing_keys = required_keys - set(parsed.keys())
+                if missing_keys or not isinstance(parsed.get("findings"), list):
+                    msg = (
+                        f"Missing required keys in model response: {sorted(missing_keys)}"
+                        if missing_keys
+                        else "'findings' field must be a list"
+                    )
+                    err_msg = f"Incomplete model response ({msg})"
+                    attempt = ModelAttempt(
+                        model=model_name,
+                        outcome="schema_invalid",
+                        duration_ms=timings["total_duration_ms"],
+                        input_tokens=in_tokens,
+                        output_tokens=out_tokens,
+                        done_reason=done_reason,
+                        error_detail=err_msg,
+                    )
+                    return None, timings, raw_text, err_msg, attempt
+
+            attempt = ModelAttempt(
+                model=model_name,
+                outcome="success",
+                duration_ms=timings["total_duration_ms"],
+                input_tokens=in_tokens,
+                output_tokens=out_tokens,
+                done_reason=done_reason,
+                error_detail=None,
+            )
+            return parsed, timings, raw_text, None, attempt
 
     def _process_model_json(
         self,
@@ -861,7 +876,12 @@ class Reviewer:
                 ]
                 return fb
 
-        chunks = self._partition_into_chunks(packet)
+        with start_stage_span(
+            "chunk.prepare",
+            "Partition diff into review chunks",
+            data={"packet.total_files": len(packet.changed_files)},
+        ):
+            chunks = self._partition_into_chunks(packet)
 
         # 1. Single chunk fast path
         if len(chunks) == 1:
@@ -1561,14 +1581,18 @@ class Reviewer:
             _notify_progress(chunk_idx, len(chunks), file_names, list(chunk_provenance))
 
         # Deduplicate findings across chunks
-        seen_ids: set[str] = set()
-        unique_findings: list[Finding] = []
-        for f in all_findings:
-            if f.finding_id not in seen_ids:
-                seen_ids.add(f.finding_id)
-                unique_findings.append(f)
+        with start_stage_span(
+            "reconciliation.reconcile",
+            "Reconcile and deduplicate findings across chunks",
+        ):
+            seen_ids: set[str] = set()
+            unique_findings: list[Finding] = []
+            for f in all_findings:
+                if f.finding_id not in seen_ids:
+                    seen_ids.add(f.finding_id)
+                    unique_findings.append(f)
 
-        unique_retired_ids = list(dict.fromkeys(all_retired_ids))
+            unique_retired_ids = list(dict.fromkeys(all_retired_ids))
 
         # Synthesis step
         if is_cancelled and is_cancelled():
