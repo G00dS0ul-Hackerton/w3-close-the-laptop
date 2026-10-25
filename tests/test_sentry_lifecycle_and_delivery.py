@@ -26,6 +26,7 @@ class SlowMockReviewer:
     def __init__(self, pause_seconds: float = 0.2) -> None:
         self.pause_seconds = pause_seconds
         self.started_event = threading.Event()
+        self.release_event = threading.Event()
 
     def review(
         self,
@@ -34,7 +35,10 @@ class SlowMockReviewer:
         **kwargs: Any,
     ) -> ReviewResult:
         self.started_event.set()
-        time.sleep(self.pause_seconds)
+        if not self.release_event.is_set():
+            self.release_event.wait(timeout=max(self.pause_seconds, 3.0))
+        else:
+            time.sleep(self.pause_seconds)
         if progress_callback:
             progress_callback(1, 1, "Reviewing chunk 1")
         return ReviewResult(
@@ -284,6 +288,7 @@ def test_mid_review_toggle_off_drops_unsent_spans(tmp_path: Path) -> None:
             assert toggle_resp.status_code == 200
             assert toggle_resp.json()["enabled"] is False
 
+            mock_reviewer.release_event.set()
             rev_thread.join(timeout=5.0)
             assert review_resp_holder.get("status_code") == 200
 
@@ -356,6 +361,7 @@ def test_mid_review_toggle_on_deferred(tmp_path: Path) -> None:
             assert resp_body["pending_activation"] is True
             assert resp_body["effective_immediately"] is False
 
+            mock_reviewer.release_event.set()
             rev_thread.join(timeout=5.0)
             assert review_resp_holder.get("status_code") == 200
     finally:
