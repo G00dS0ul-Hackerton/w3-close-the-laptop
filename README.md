@@ -1,5 +1,7 @@
 # SteadyDev (Close the Laptop)
 
+<img width="1000" height="420" alt="SteadyDev-DEV-Cover" src="https://github.com/user-attachments/assets/5a8b7f61-0c26-4f29-9caf-df03a2f20f19" />
+
 > **"You don't have to finish everything today. You just need to know where you stand and how to continue tomorrow."**
 
 SteadyDev is a local-first, open-weight AI companion designed to help developers end their work sessions with clarity. Rather than pressuring you to clear an endless backlog or hovering over every keystroke, SteadyDev quietly compares your session goals, code changes, and verification checks. It highlights potential gaps with supporting evidence, evaluates doc drift, and generates an editable closing summary with a durable restart note for tomorrow.
